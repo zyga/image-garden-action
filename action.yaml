@@ -29,6 +29,12 @@ inputs:
     garden-system:
         description: Name of the image-garden system image to prepare
         required: true
+    spread-backend:
+        description: Name of the image-garden backend
+        default: garden
+    spread-tasks:
+        description: Subset of spread tasks to run
+        default: ""
 branding:
     icon: download
     color: orange
@@ -132,7 +138,7 @@ runs:
         - name: Run integration tests
           shell: bash
           run: |
-            spread -v garden:${{ inputs.garden-system }}:
+            spread -v ${{ inputs.spread-backend }}:${{ inputs.garden-system }}:${{ inputs.spread-tasks }}
         - name: Show logs
           shell: bash
           if: failure()
