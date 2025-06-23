@@ -21,7 +21,7 @@ inputs:
         description: Use GitHub cache to store pristine images (recommended)
         default: "true"
     cache-prepared-images:
-        description: Use GitHub cache to store project-specific images (cache-intenstive, scales poorly with number of systems)
+        description: Use GitHub cache to store project-specific images (cache-intensive, scales poorly with number of systems)
         default: "false"
     spread-variant:
         description: Variant of spread to use
