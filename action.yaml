@@ -9,11 +9,11 @@ description: |
     of well-known Linux distributions.
 inputs:
     snapd-channel:
-        description: Snap store channel for the snapd snap.
-        default: latest/edge
+        description: Snap store channel for the snapd snap
+        default: latest/stable
     image-garden-channel:
         description: Snap store channel for the image-garden snap.
-        default: latest/edge
+        default: latest/stable
     cache-host-snaps:
         description: Use GitHub cache to store snaps needed on the host (recommended)
         default: "true"
