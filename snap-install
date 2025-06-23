@@ -1,0 +1,127 @@
+#!/bin/sh
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Canonical Ltd.
+#
+# snap-install - the caching snap installer
+#
+# The installer always asks snapd, and thus the store, about which revision
+# should be installed but then uses a local storage at
+# $X_SPREAD_SNAP_CACHE_DIR, to download and install the snap. Special care is
+# taken to update the tracking channel so that the actual operation is as
+# closely similar to plain "snap install" as possible.
+#
+# Default providers and base snaps are not automatically installed and should
+# be installed with snap-install before the actual application snap.
+set -eu
+
+: "${X_SPREAD_SNAP_CACHE_DIR:=/mnt/cache/snaps}"
+
+if [ $# -ne 1 ] && [ $# -ne 2 ] && [ $# -ne 3 ]; then
+	echo "Usage: snap-install [--classic|--devmode] SNAP [CHANNEL]" >&2
+	echo "Install a snap from the store using local cache."
+	exit 64 # EX_USAGE
+fi
+
+classic=0
+devmode=0
+case "$1" in
+--classic)
+	classic=1
+	shift
+	;;
+--devmode)
+	devmode=1
+	shift
+	;;
+esac
+
+snap="$1"
+channel="${2-latest/stable}"
+
+mkdir -p /tmp/snap-install
+cd /tmp/snap-install
+
+echo "Asking snapd about snap $snap"
+if ! curl \
+	--fail \
+	--dump-header "$snap".header \
+	--silent \
+	--show-error \
+	--unix-socket /run/snapd.socket \
+	http://localhost/v2/find?name="$snap" \
+	>"$snap".response; then
+	rm -f "$snap".response
+	exit 69 # EX_UNAVAILABLE
+fi
+
+json_status="$(jq --raw-output .status "$snap".response)"
+if [ "$json_status" != OK ]; then
+	echo "Snapd replied with not-okay status: $json_status" >&2
+	exit 69 # EX_UNAVAILABLE
+fi
+
+mv "$snap".response "$snap".json
+
+revision=null
+while [ "$revision" = null ]; do
+	revision="$(jq --raw-output ".result[0].channels[\"""$channel""\"].revision" "$snap".json)"
+
+	if [ "$revision" = null ]; then
+		# Try the more stable risk level.
+		track=$(echo "$channel" | cut -d / -f 1)
+		risk=$(echo "$channel" | cut -d / -f 2)
+		case "$risk" in
+		edge)
+			risk=beta
+			;;
+		beta)
+			risk=candidate
+			;;
+		candidate)
+			risk=stable
+			;;
+		stable)
+			echo "Snap $snap has no open risk levels in track $track" >&2
+			exit 1
+			;;
+		esac
+		channel="$track/$risk"
+	fi
+done
+
+echo "Snap $snap in channel $channel is at revision $revision"
+
+mkdir -p "$X_SPREAD_SNAP_CACHE_DIR"
+cd "$X_SPREAD_SNAP_CACHE_DIR"
+
+if [ ! -f "$snap"_"$revision".snap ] || [ ! -f "$snap"_"$revision".assert ]; then
+	echo "Downloading snap $snap revision $revision"
+	# Download in /var/tmp but then copy to the cache directory.
+	# Hopefully with many racing systems we don't clobber each other, but
+	# in order to reduce the risk of this, copy the file (via install), to
+	# a temporary name and then rename to the desired path.
+	snap download --target-directory=/var/tmp "$snap" --revision "$revision"
+	N="$(shuf -i 1-9999 -n 1)"
+	install -v -m 644 /var/tmp/"$snap"_"$revision".assert "$X_SPREAD_SNAP_CACHE_DIR"/"$snap"_"$revision".assert."$N"
+	rm -v -f /var/tmp/"$snap"_"$revision".assert
+	install -v -m 644 /var/tmp/"$snap"_"$revision".snap "$X_SPREAD_SNAP_CACHE_DIR"/"$snap"_"$revision".snap."$N"
+	rm -v -f /var/tmp/"$snap"_"$revision".snap
+	# We don't' want to clobber so whoever starts, wins.
+	mv --no-clobber "$X_SPREAD_SNAP_CACHE_DIR"/"$snap"_"$revision".assert."$N" "$X_SPREAD_SNAP_CACHE_DIR"/"$snap"_"$revision".assert || true
+	mv --no-clobber "$X_SPREAD_SNAP_CACHE_DIR"/"$snap"_"$revision".snap."$N" "$X_SPREAD_SNAP_CACHE_DIR"/"$snap"_"$revision".snap || true
+fi
+
+echo "Installing snap $snap at revision $revision as if it came from channel $channel"
+ls -ld "$snap"_"$revision".assert "$snap"_"$revision".snap
+sudo snap ack "$snap"_"$revision".assert
+if [ $classic -eq 1 ]; then
+	sudo snap install --classic "$snap"_"$revision".snap
+else
+	if [ $devmode -eq 1 ]; then
+		sudo snap install --devmode "$snap"_"$revision".snap
+	else
+		sudo snap install "$snap"_"$revision".snap
+	fi
+fi
+
+sudo snap switch "$snap" --channel="$channel"

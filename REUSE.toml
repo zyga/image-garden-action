@@ -1,0 +1,8 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Zygmunt Krynicki
+
+version = 1
+SPDX-PackageName = "Image Garden Action"
+SPDX-PackageSupplier = "Zygmunt Krynicki <me@zygoon.pl>"
+SPDX-PackageDownloadLocation = "https://github.com/zygoon/image-garden-action"
+annotations = []

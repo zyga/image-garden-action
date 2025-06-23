@@ -1,0 +1,144 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Canonical Ltd.
+name: Run tests with image-garden and spread
+author: Zygmunt Krynicki
+description: "Install image-garden and use the bundled copy of spread to run \nintegration tests in a controlled virtual machine.\n"
+inputs:
+    snapd-channel:
+        description: Snap store channel for the snapd snap.
+        default: latest/edge
+    image-garden-channel:
+        description: Snap store channel for the image-garden snap.
+        default: latest/edge
+    cache-host-snaps:
+        description: Use GitHub cache to store snaps needed on the host (recommended)
+        default: "true"
+    cache-pristine-images:
+        description: Use GitHub cache to store pristine images (recommended)
+        default: "true"
+    cache-prepared-images:
+        description: Use GitHub cache to store project-specific images (cache-intenstive, scales poorly with number of systems)
+        default: "false"
+    spread-variant:
+        description: Variant of spread to use
+        default: ""
+    garden-system:
+        description: Name of the image-garden system image to prepare
+        required: true
+branding:
+    icon: download
+    color: orange
+runs:
+    using: composite
+    steps:
+        - name: Inspect the host system
+          shell: bash
+          run: |
+            echo "Kernel version"
+            uname -a
+            echo "Available memory"
+            free -m
+            echo "Number of CPU cores"
+            nproc
+            echo "Group membership"
+            groups
+            echo "List of IP addresses"
+            ip addr list
+            echo "Presence of /dev/kvm"
+            ls -l /dev/kvm || true
+        - name: Cache downloaded snaps (host only)
+          if: ${{ fromJSON(inputs.cache-host-snaps) }}
+          uses: actions/cache@v4
+          with:
+            path: .image-garden/host-snap-cache
+            key: host-snaps
+        - name: Cache pristine virtual machine images
+          if: ${{ fromJSON(inputs.cache-pristine-images) }}
+          uses: actions/cache@v4
+          with:
+            path: ~/snap/image-garden/common/cache/dl
+            key: image-garden-dl-${{ inputs.garden-system }}
+        - name: Cache prepared virtual machine images
+          uses: actions/cache@v4
+          if: ${{ fromJSON(inputs.cache-prepared-images) }}
+          with:
+            path: .image-garden
+            key: image-garden-img-${{ inputs.garden-system }}-${{ hashFiles('.image-garden.mk') }}
+        - name: Restore mtime of .image-garden.mk
+          shell: bash
+          run: |
+            # Disable man page updates which is time-consuming.
+            echo "man-db man-db/auto-update boolean false" | sudo debconf-set-selections
+            # Download the deb and install it by hand.
+            wget http://ftp.us.debian.org/debian/pool/main/g/git-mestrelion-tools/git-restore-mtime_2022.12-1_all.deb
+            sudo dpkg -i git-restore-mtime_2022.12-1_all.deb
+            rm -f git-restore-mtime_2022.12-1_all.deb
+            # sudo apt update
+            # sudo apt install -y git-restore-mtime
+            git restore-mtime .image-garden.mk
+            ls -l .image-garden.mk
+        - name: Make permissions on /dev/kvm more lax
+          shell: bash
+          run: sudo chmod -v 666 /dev/kvm
+        - name: Work around a bug in snapd suspend logic
+          shell: bash
+          run: |
+            sudo mkdir -p /etc/systemd/system/snapd.service.d
+            (
+              echo "[Service]"
+              echo "Environment=SNAPD_STANDBY_WAIT=15m"
+            ) | sudo tee /etc/systemd/system/snapd.service.d/standby.conf
+            sudo systemctl daemon-reload
+            sudo systemctl restart snapd.service
+        - name: Install snapd and image-garden snaps
+          shell: bash
+          run: |
+            export X_SPREAD_SNAP_CACHE_DIR="$(pwd)"/.image-garden/host-snap-cache
+            sudo ${{ github.action_path }}/snap-install snapd ${{ inputs.snapd-channel }}
+            sudo ${{ github.action_path }}/snap-install core24
+            sudo ${{ github.action_path }}/snap-install --devmode image-garden ${{ inputs.image-garden-channel }}
+        - name: Use spread from image-garden snap
+          shell: bash
+          run: sudo snap alias image-garden.spread spread
+        - name: Use spread variant
+          shell: bash
+          if: ${{ inputs.spread-variant != '' }}
+          run: sudo snap set image-garden spread-variant=${{ inputs.spread-variant }}
+        - name: Make the virtual machine image (dry run)
+          shell: bash
+          run: |
+            mkdir -p ~/snap/image-garden/common/cache/dl
+            image-garden make --debug --dry-run \
+              ${{ inputs.garden-system }}."$(uname -m)".qcow2
+        - name: Make the virtual machine image
+          shell: bash
+          run: |
+            image-garden make \
+              ${{ inputs.garden-system }}."$(uname -m)".qcow2 \
+              ${{ inputs.garden-system }}."$(uname -m)".run \
+              ${{ inputs.garden-system }}."$(uname -m)".user-data \
+              ${{ inputs.garden-system }}."$(uname -m)".meta-data \
+              ${{ inputs.garden-system }}."$(uname -m)".seed.iso
+        - name: Rebase the virtual machine image
+          shell: bash
+          # TODO: only run this if there was a cache hit.
+          if: ${{ fromJSON(inputs.cache-prepared-images) }}
+          run: |
+            image-garden rebase ${{ inputs.garden-system }}."$(uname -m)".qcow2
+        - name: Run integration tests
+          shell: bash
+          run: |
+            spread -v garden:${{ inputs.garden-system }}:
+        - name: Show logs
+          shell: bash
+          if: failure()
+          run: |
+            for f in .image-garden/*.log; do
+                echo "********************************"
+                echo "$f"
+                echo "********************************"
+                echo
+                cat "$f"
+                echo
+                echo
+            done
