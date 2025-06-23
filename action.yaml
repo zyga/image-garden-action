@@ -4,9 +4,7 @@ name: Run tests with image-garden and spread
 author: Zygmunt Krynicki
 description: |
     Install image-garden and use the bundled copy of spread to run integration
-    tests in a controlled virtual machine. Unlike other systems the same test
-    can be reproduced locally. Images are directly traceable to published images
-    of well-known Linux distributions.
+    tests in a controlled virtual machine.
 inputs:
     snapd-channel:
         description: Snap store channel for the snapd snap
