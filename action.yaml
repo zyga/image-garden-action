@@ -24,6 +24,9 @@ inputs:
     spread-variant:
         description: Variant of spread to use
         default: ""
+    spread-subdir:
+        description: Sub-directory of the project where spread.yaml resides in
+        default: "."
     garden-system:
         description: Name of the image-garden system image to prepare
         required: true
@@ -54,6 +57,10 @@ runs:
             ip addr list
             echo "Presence of /dev/kvm"
             ls -l /dev/kvm || true
+        - name: Enter project subdirectory
+          shell: bash
+          run: |
+            cd "${{ inputs.spread-subdir }}"
         - name: Cache downloaded snaps (host only)
           if: ${{ fromJSON(inputs.cache-host-snaps) }}
           uses: actions/cache@v4
