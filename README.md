@@ -24,6 +24,12 @@ full system with a real Linux kernel used by the target platform.
 The action is in pre-release mode. You can see it in action at
 https://github.com/canonical/snapd-smoke-tests/
 
+## Inputs
+
+### spread-subdir
+
+Optional sub-directory where `spread.yaml` is located.
+
 ## Usage
 
 Follow the steps to get started:
