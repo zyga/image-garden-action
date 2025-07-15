@@ -144,16 +144,11 @@ runs:
           shell: bash
           run: |
             spread -v ${{ inputs.spread-backend }}:${{ inputs.garden-system }}:${{ inputs.spread-tasks }}
-        - name: Show logs
-          shell: bash
+              spread -v ${{ inputs.spread-backend }}:${{ inputs.garden-system }}:${{ inputs.spread-tasks }}
+        - name: Upload logs as artifacts
           if: failure()
-          run: |
-            for f in .image-garden/*.log; do
-                echo "********************************"
-                echo "$f"
-                echo "********************************"
-                echo
-                cat "$f"
-                echo
-                echo
-            done
+          uses: actions/upload-artifact@v4
+          with:
+            name: boot-logs
+            path: .image-garden/*.log
+            if-no-files-found: ignore
