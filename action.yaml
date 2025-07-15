@@ -45,6 +45,7 @@ runs:
         - name: Inspect the host system
           shell: bash
           run: |
+            echo "::group::Host system information"
             echo "Kernel version"
             uname -a
             echo "Available memory"
@@ -57,6 +58,7 @@ runs:
             ip addr list
             echo "Presence of /dev/kvm"
             ls -l /dev/kvm || true
+            echo "::endgroup::"
         - name: Enter project subdirectory
           shell: bash
           run: |
@@ -84,6 +86,7 @@ runs:
         - name: Restore mtime of .image-garden.mk
           shell: bash
           run: |
+            echo "::group::Restore mtime of .image-garden.mk"
             # Disable man page updates which is time-consuming.
             echo "man-db man-db/auto-update boolean false" | sudo debconf-set-selections
             # Download the deb and install it by hand.
@@ -94,12 +97,14 @@ runs:
             # sudo apt install -y git-restore-mtime
             git restore-mtime .image-garden.mk
             ls -l .image-garden.mk
+            echo "::endgroup::"
         - name: Make permissions on /dev/kvm more lax
           shell: bash
           run: sudo chmod -v 666 /dev/kvm
         - name: Work around a bug in snapd suspend logic
           shell: bash
           run: |
+            echo "::group::Work around a bug in snapd suspend logic"
             sudo mkdir -p /etc/systemd/system/snapd.service.d
             (
               echo "[Service]"
@@ -107,13 +112,16 @@ runs:
             ) | sudo tee /etc/systemd/system/snapd.service.d/standby.conf
             sudo systemctl daemon-reload
             sudo systemctl restart snapd.service
+            echo "::endgroup::"
         - name: Install snapd and image-garden snaps
           shell: bash
           run: |
+            echo "::group::Install snapd and image-garden snaps"
             export X_SPREAD_SNAP_CACHE_DIR="$(pwd)"/.image-garden/host-snap-cache
             sudo ${{ github.action_path }}/snap-install snapd ${{ inputs.snapd-channel }}
             sudo ${{ github.action_path }}/snap-install core24
             sudo ${{ github.action_path }}/snap-install --devmode image-garden ${{ inputs.image-garden-channel }}
+            echo "::endgroup::"
         - name: Use spread from image-garden snap
           shell: bash
           run: sudo snap alias image-garden.spread spread
@@ -124,18 +132,22 @@ runs:
         - name: Make the virtual machine image (dry run)
           shell: bash
           run: |
+            echo "::group::Make the virtual machine image (dry run)"
             mkdir -p ~/snap/image-garden/common/cache/dl
             image-garden make --debug --dry-run \
               ${{ inputs.garden-system }}."$(uname -m)".qcow2
+            echo "::endgroup::"
         - name: Make the virtual machine image
           shell: bash
           run: |
+            echo "::group::Make the virtual machine image"
             image-garden make \
               ${{ inputs.garden-system }}."$(uname -m)".qcow2 \
               ${{ inputs.garden-system }}."$(uname -m)".run \
               ${{ inputs.garden-system }}."$(uname -m)".user-data \
               ${{ inputs.garden-system }}."$(uname -m)".meta-data \
               ${{ inputs.garden-system }}."$(uname -m)".seed.iso
+            echo "::endgroup::"
         - name: Rebase the virtual machine image
           shell: bash
           # TODO: only run this if there was a cache hit.
