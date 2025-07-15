@@ -144,7 +144,6 @@ runs:
           shell: bash
           run: |
             spread -v ${{ inputs.spread-backend }}:${{ inputs.garden-system }}:${{ inputs.spread-tasks }}
-              spread -v ${{ inputs.spread-backend }}:${{ inputs.garden-system }}:${{ inputs.spread-tasks }}
         - name: Upload logs as artifacts
           if: failure()
           uses: actions/upload-artifact@v4
