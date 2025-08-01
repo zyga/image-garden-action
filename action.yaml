@@ -163,5 +163,5 @@ runs:
           uses: actions/upload-artifact@v4
           with:
             name: boot-logs
-            path: .image-garden/*.log
+            path: ${{ inputs.spread-subdir && inputs.spread-subdir + '/' || '' }}.image-garden/*.log
             if-no-files-found: ignore
