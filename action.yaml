@@ -163,17 +163,17 @@ runs:
         - name: Run integration tests
           shell: bash
           run: |
-            spread ${{ inputs.spread-artifacts && format('-artifacts {}', inputs.spread-artifacts) || '' }} -v ${{ inputs.spread-backend }}:${{ inputs.garden-system }}:${{ inputs.spread-tasks }}
+            spread ${{ inputs.spread-artifacts && format('-artifacts {0}', inputs.spread-artifacts) || '' }} -v ${{ inputs.spread-backend }}:${{ inputs.garden-system }}:${{ inputs.spread-tasks }}
         - name: Upload spread artifacts
           if: ${{ inputs.spread-artifacts }}
           uses: actions/upload-artifact@v4
           with:
             name: spread-artifacts-${{ inputs.spread-artifact-suffix || inputs.garden-system }}
-            path: ${{ inputs.spread-subdir && format('{}/', inputs.spread-subdir) || '' }}${{ inputs.spread-artifacts }}
+            path: ${{ inputs.spread-subdir && format('{0}/', inputs.spread-subdir) || '' }}${{ inputs.spread-artifacts }}
         - name: Upload logs as artifacts
           if: ${{ failure() }}
           uses: actions/upload-artifact@v4
           with:
             name: boot-logs
-            path: ${{ inputs.spread-subdir && format('{}/', inputs.spread-subdir) || '' }}.image-garden/*.log
+            path: ${{ inputs.spread-subdir && format('{0}/', inputs.spread-subdir) || '' }}.image-garden/*.log
             if-no-files-found: ignore
