@@ -164,6 +164,11 @@ runs:
           shell: bash
           run: |
             spread ${{ inputs.spread-artifacts && format('-artifacts {0}', inputs.spread-artifacts) || '' }} -v ${{ inputs.spread-backend }}:${{ inputs.garden-system }}:${{ inputs.spread-tasks }}
+        - name: Rename artifacts for GitHub compatibility
+          if: ${{ inputs.spread-artifacts }}
+          shell: bash
+          run: |
+            find "${{ inputs.spread-artifacts }}" -depth -name '*:*' -execdir bash -c 'mv -v "$1" "${1//:/_}"' bash "{}" \;
         - name: Upload spread artifacts
           if: ${{ inputs.spread-artifacts }}
           uses: actions/upload-artifact@v4
