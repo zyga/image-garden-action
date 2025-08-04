@@ -163,7 +163,7 @@ runs:
         - name: Run integration tests
           shell: bash
           run: |
-            spread ${{ inputs.spread-artifacts && "-artifacts " + inputs.spread-artifacts || "" }} -v ${{ inputs.spread-backend }}:${{ inputs.garden-system }}:${{ inputs.spread-tasks }}
+            spread ${{ inputs.spread-artifacts && '-artifacts ' + inputs.spread-artifacts || '' }} -v ${{ inputs.spread-backend }}:${{ inputs.garden-system }}:${{ inputs.spread-tasks }}
         - name: Upload spread artifacts
           if: ${{ inputs.spread-artifacts }}
           uses: actions/upload-artifact@v4
