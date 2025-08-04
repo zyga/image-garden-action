@@ -30,6 +30,16 @@ https://github.com/canonical/snapd-smoke-tests/
 
 Optional sub-directory where `spread.yaml` is located.
 
+### spread-artifacts
+
+Optional directory where spread saves task artifacts. A non-empty value causes the
+both collection of artifacts and uploading collected files to GitHub.
+
+### spread-artifacts-suffix
+
+Optional suffix used to disambiguate GitHub artifacts that store spread artifacts.
+When missing the garden system name is used instead.
+
 ## Usage
 
 Follow the steps to get started:

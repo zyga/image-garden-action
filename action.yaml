@@ -36,6 +36,12 @@ inputs:
     spread-tasks:
         description: Subset of spread tasks to run
         default: ""
+    spread-artifacts:
+        description: Path where spread saves task artifacts
+        default: ""
+    spread-artifacts-sufifx:
+        description: Suffix appended to GitHub artifact archive with spread artifacts
+        default: ""
 branding:
     icon: download
     color: orange
@@ -157,11 +163,17 @@ runs:
         - name: Run integration tests
           shell: bash
           run: |
-            spread -v ${{ inputs.spread-backend }}:${{ inputs.garden-system }}:${{ inputs.spread-tasks }}
+            spread ${{ inputs.spread-artifacts && "-artifacts " + inputs.spread-artifacts || "" }} -v ${{ inputs.spread-backend }}:${{ inputs.garden-system }}:${{ inputs.spread-tasks }}
+        - name: Upload spread artifacts
+          if: ${{ inputs.spread-artifacts }}
+          uses: actions/upload-artifact@v4
+          with:
+            name: spread-artifacts-${{ inputs.spread-artifact-suffix || inputs.garden-system }}
+            path: ${{ inputs.spread-subdir && inputs.spread-subdir + '/' || '' }}${{ inputs.spread-artifacts }}
         - name: Upload logs as artifacts
-          if: failure()
+          if: ${{ failure() }}
           uses: actions/upload-artifact@v4
           with:
             name: boot-logs
-            path: .image-garden/*.log
+            path: ${{ inputs.spread-subdir && inputs.spread-subdir + '/' || '' }}.image-garden/*.log
             if-no-files-found: ignore
