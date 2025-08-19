@@ -39,7 +39,7 @@ inputs:
     spread-artifacts:
         description: Path where spread saves task artifacts
         default: ""
-    spread-artifacts-sufifx:
+    spread-artifacts-suffix:
         description: Suffix appended to GitHub artifact archive with spread artifacts
         default: ""
 branding:
