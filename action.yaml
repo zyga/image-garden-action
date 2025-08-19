@@ -173,7 +173,7 @@ runs:
           if: ${{ inputs.spread-artifacts }}
           uses: actions/upload-artifact@v4
           with:
-            name: spread-artifacts-${{ inputs.spread-artifact-suffix || inputs.garden-system }}
+            name: spread-artifacts-${{ inputs.spread-artifacts-suffix || inputs.garden-system }}
             path: ${{ inputs.spread-subdir && format('{0}/', inputs.spread-subdir) || '' }}${{ inputs.spread-artifacts }}
         - name: Upload logs as artifacts
           if: ${{ failure() }}
