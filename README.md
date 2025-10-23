@@ -49,7 +49,7 @@ Follow the steps to get started:
     At the end of this process we will open a pull request that introduces both
     the defintion of the test and the CI/CD workflow that runs it.
 
-2. Create the `.image-garden/README.md` file.
+2. Create the `.image-garden/README.md` and `.image-garden.mk` files.
 
     The presence of the `.image-garden/` directory instructs `image-garden` to
     store all temporary files in a sub-directory. This makes it much more tidy
@@ -68,6 +68,9 @@ Follow the steps to get started:
     Consult documentation of [spread](https://github.com/canonical/spread) and
     [image-garden](https://gitlab.com/zygoon/image-garden).
     ```
+
+    `.image-garden.mk` file is used to expand the cloud-init user data template
+    defined on image-garden. It can be left empty if no extra configuration is needed.
 
 3. Create the `spread.yaml` file.
 
