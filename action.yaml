@@ -90,6 +90,7 @@ runs:
                 !.image-garden/*.log
             key: image-garden-img-${{ inputs.garden-system }}-${{ hashFiles('.image-garden.mk') }}
         - name: Restore mtime of .image-garden.mk
+          if: hashFiles('.image-garden.mk') != ''
           shell: bash
           run: |
             echo "::group::Restore mtime of .image-garden.mk"
