@@ -90,6 +90,7 @@ runs:
                 !.image-garden/*.log
             key: image-garden-img-${{ inputs.garden-system }}-${{ hashFiles('.image-garden.mk') }}
         - name: Restore mtime of .image-garden.mk
+          if: hashFiles('.image-garden.mk') != ''
           shell: bash
           run: |
             echo "::group::Restore mtime of .image-garden.mk"
@@ -102,7 +103,6 @@ runs:
             # sudo apt update
             # sudo apt install -y git-restore-mtime
             git restore-mtime .image-garden.mk
-            ls -l .image-garden.mk
             echo "::endgroup::"
         - name: Make permissions on /dev/kvm more lax
           shell: bash
