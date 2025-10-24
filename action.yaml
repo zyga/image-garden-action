@@ -102,7 +102,6 @@ runs:
             # sudo apt update
             # sudo apt install -y git-restore-mtime
             git restore-mtime .image-garden.mk
-            ls -l .image-garden.mk
             echo "::endgroup::"
         - name: Make permissions on /dev/kvm more lax
           shell: bash
