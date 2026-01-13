@@ -251,6 +251,26 @@ Follow the steps to get started:
 Please leave a GitHub star if you found this useful. Please feel free to open
 issues, either on `image-garden-action`, `image-garden` or `spread`.
 
+## Troubleshooting
+
+This section lists common errors and how to resolve them.
+
+### `error: nothing matches provider filter`
+
+**Cause:**
+The system specified in the workflow input does not exist in the `spread.yaml` configuration file.
+
+**Resolution:**
+Verify that the value of the `garden-system` input matches one of the systems defined in `spread.yaml`.
+
+### `Cannot allocate garden:<system-name>: backend "garden" allocate must print ADDRESS=<SSH address> to stdout, got: ""`
+
+**Cause:**
+The requested operating system and architecture combination is not available in **image-garden**.
+
+**Resolution:**
+Confirm that the specified OS and architecture are supported by **image-garden**, and update your inputs as needed.
+
 ## Further reading
 
 Consult documentation of [spread](https://github.com/canonical/spread) and
