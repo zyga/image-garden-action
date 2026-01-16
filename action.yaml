@@ -67,10 +67,9 @@ runs:
             echo "::endgroup::"
         - name: Cache downloaded snaps (host only)
           if: ${{ fromJSON(inputs.cache-host-snaps) }}
-          working-directory: ${{ inputs.spread-subdir }}
           uses: actions/cache@v4
           with:
-            path: .image-garden/host-snap-cache
+            path: ${{ inputs.spread-subdir }}/.image-garden/host-snap-cache
             key: host-snaps
         - name: Cache pristine virtual machine images
           if: ${{ fromJSON(inputs.cache-pristine-images) }}
@@ -81,12 +80,11 @@ runs:
         - name: Cache prepared virtual machine images
           uses: actions/cache@v4
           if: ${{ fromJSON(inputs.cache-prepared-images) }}
-          working-directory: ${{ inputs.spread-subdir }}
           with:
             path: |
-                .image-garden
-                !.image-garden/*.log
-            key: image-garden-img-${{ inputs.garden-system }}-${{ hashFiles('.image-garden.mk') }}
+                ${{ inputs.spread-subdir }}/.image-garden
+                !${{ inputs.spread-subdir }}/.image-garden/*.log
+            key: image-garden-img-${{ inputs.garden-system }}-${{ hashFiles(format('{0}/.image-garden.mk', inputs.spread-subdir)) }}
         - name: Restore mtime of .image-garden.mk
           if: hashFiles('.image-garden.mk') != ''
           shell: bash
