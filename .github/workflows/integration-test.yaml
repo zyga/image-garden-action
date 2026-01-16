@@ -16,5 +16,5 @@ jobs:
             - name: Run toy integration test
               uses: ./
               with:
-                garden-system: ubuntu-24.04
+                garden-system: ubuntu-cloud-24.04
                 spread-subdir: tests/toy
