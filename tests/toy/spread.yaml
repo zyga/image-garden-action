@@ -1,0 +1,27 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Canonical Ltd.
+project: toy
+path: /root/toy
+exclude:
+    - .image-garden/
+    - .git
+backends:
+    garden:
+        type: adhoc
+        allocate: |
+            if [ -n "${SPREAD_HOST_PATH-}" ]; then
+                PATH="$SPREAD_HOST_PATH"
+            fi
+            exec image-garden allocate "$SPREAD_SYSTEM"."$(uname -m)"
+        discard: |
+            if [ -n "${SPREAD_HOST_PATH-}" ]; then
+                PATH="$SPREAD_HOST_PATH"
+            fi
+            exec image-garden discard "$SPREAD_SYSTEM_ADDRESS"
+        systems:
+            - ubuntu-24.04:
+                username: root
+                password: root
+suites:
+    tests/:
+        summary: Toy integration tests
