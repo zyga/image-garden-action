@@ -165,7 +165,10 @@ runs:
           run: |
             cd "${{ inputs.spread-subdir }}"
             set +e
-            spread ${{ inputs.spread-artifacts && format('-artifacts {0}', inputs.spread-artifacts) || '' }} -v ${{ inputs.spread-backend }}:${{ inputs.garden-system }}:${{ inputs.spread-tasks }} 2>&1 | tee spread.log
+            spread \
+              ${{ inputs.spread-artifacts && format('-artifacts {0}', inputs.spread-artifacts) || '' }} \
+              -v ${{ inputs.spread-backend }}:${{ inputs.garden-system }}:${{ inputs.spread-tasks }} \
+              2>&1 | tee spread.log
             SPREAD_EXIT_CODE=${PIPESTATUS[0]}
             set -e
             exit $SPREAD_EXIT_CODE
