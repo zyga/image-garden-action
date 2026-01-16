@@ -65,12 +65,9 @@ runs:
             echo "Presence of /dev/kvm"
             ls -l /dev/kvm || true
             echo "::endgroup::"
-        - name: Enter project subdirectory
-          shell: bash
-          run: |
-            cd "${{ inputs.spread-subdir }}"
         - name: Cache downloaded snaps (host only)
           if: ${{ fromJSON(inputs.cache-host-snaps) }}
+          working-directory: ${{ inputs.spread-subdir }}
           uses: actions/cache@v4
           with:
             path: .image-garden/host-snap-cache
@@ -84,6 +81,7 @@ runs:
         - name: Cache prepared virtual machine images
           uses: actions/cache@v4
           if: ${{ fromJSON(inputs.cache-prepared-images) }}
+          working-directory: ${{ inputs.spread-subdir }}
           with:
             path: |
                 .image-garden
@@ -92,6 +90,7 @@ runs:
         - name: Restore mtime of .image-garden.mk
           if: hashFiles('.image-garden.mk') != ''
           shell: bash
+          working-directory: ${{ inputs.spread-subdir }}
           run: |
             echo "::group::Restore mtime of .image-garden.mk"
             # Disable man page updates which is time-consuming.
@@ -137,6 +136,7 @@ runs:
           run: sudo snap set image-garden spread-variant=${{ inputs.spread-variant }}
         - name: Make the virtual machine image (dry run)
           shell: bash
+          working-directory: ${{ inputs.spread-subdir }}
           run: |
             echo "::group::Make the virtual machine image (dry run)"
             mkdir -p ~/snap/image-garden/common/cache/dl
@@ -145,6 +145,7 @@ runs:
             echo "::endgroup::"
         - name: Make the virtual machine image
           shell: bash
+          working-directory: ${{ inputs.spread-subdir }}
           run: |
             echo "::group::Make the virtual machine image"
             image-garden make \
@@ -158,10 +159,12 @@ runs:
           shell: bash
           # TODO: only run this if there was a cache hit.
           if: ${{ fromJSON(inputs.cache-prepared-images) }}
+          working-directory: ${{ inputs.spread-subdir }}
           run: |
             image-garden rebase ${{ inputs.garden-system }}."$(uname -m)".qcow2
         - name: Run integration tests
           shell: bash
+          working-directory: ${{ inputs.spread-subdir }}
           run: |
             spread ${{ inputs.spread-artifacts && format('-artifacts {0}', inputs.spread-artifacts) || '' }} -v ${{ inputs.spread-backend }}:${{ inputs.garden-system }}:${{ inputs.spread-tasks }}
         - name: Rename artifacts for GitHub compatibility
