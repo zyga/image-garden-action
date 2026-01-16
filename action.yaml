@@ -166,7 +166,21 @@ runs:
           shell: bash
           working-directory: ${{ inputs.spread-subdir }}
           run: |
-            spread ${{ inputs.spread-artifacts && format('-artifacts {0}', inputs.spread-artifacts) || '' }} -v ${{ inputs.spread-backend }}:${{ inputs.garden-system }}:${{ inputs.spread-tasks }}
+            set +e
+            spread \
+              ${{ inputs.spread-artifacts && format('-artifacts {0}', inputs.spread-artifacts) || '' }} \
+              -v ${{ inputs.spread-backend }}:${{ inputs.garden-system }}:${{ inputs.spread-tasks }} \
+              2>&1 | tee spread.log
+            SPREAD_EXIT_CODE=${PIPESTATUS[0]}
+            set -e
+            exit $SPREAD_EXIT_CODE
+        - name: Upload spread log
+          if: always()
+          uses: actions/upload-artifact@v4
+          with:
+            name: spread-log-${{ inputs.spread-artifacts-suffix || inputs.garden-system }}
+            path: ${{ format('{0}/spread.log', inputs.spread-subdir) }}
+            if-no-files-found: ignore
         - name: Rename artifacts for GitHub compatibility
           if: ${{ inputs.spread-artifacts }}
           shell: bash
