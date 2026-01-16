@@ -19,7 +19,7 @@ backends:
             fi
             exec image-garden discard "$SPREAD_SYSTEM_ADDRESS"
         systems:
-            - ubuntu-24.04:
+            - ubuntu-cloud-24.04:
                 username: root
                 password: root
 suites:
