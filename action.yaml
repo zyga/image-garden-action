@@ -176,7 +176,7 @@ runs:
           uses: actions/upload-artifact@v4
           with:
             name: spread-log-${{ inputs.spread-artifacts-suffix || inputs.garden-system }}
-            path: ${{ inputs.spread-subdir && format('{0}/', inputs.spread-subdir) || '' }}spread.log
+            path: ${{ format('{0}/spread.log', inputs.spread-subdir) }}
             if-no-files-found: ignore
         - name: Rename artifacts for GitHub compatibility
           if: ${{ inputs.spread-artifacts }}
