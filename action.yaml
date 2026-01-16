@@ -163,7 +163,6 @@ runs:
         - name: Run integration tests
           shell: bash
           run: |
-            cd "${{ inputs.spread-subdir }}"
             set +e
             spread \
               ${{ inputs.spread-artifacts && format('-artifacts {0}', inputs.spread-artifacts) || '' }} \
