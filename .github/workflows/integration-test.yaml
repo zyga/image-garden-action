@@ -1,0 +1,20 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Canonical Ltd.
+name: Integration Tests
+on:
+    push:
+        branches: ["main"]
+    pull_request:
+jobs:
+    toy-test:
+        runs-on: ubuntu-latest
+        steps:
+            - name: Checkout code
+              uses: actions/checkout@v4
+              with:
+                fetch-depth: 0
+            - name: Run toy integration test
+              uses: ./
+              with:
+                garden-system: ubuntu-cloud-24.04
+                spread-subdir: tests/toy
