@@ -84,7 +84,7 @@ runs:
             path: |
                 ${{ inputs.spread-subdir }}/.image-garden
                 !${{ inputs.spread-subdir }}/.image-garden/*.log
-            key: image-garden-img-${{ inputs.garden-system }}-${{ hashFiles('.image-garden.mk') }}
+            key: image-garden-img-${{ inputs.garden-system }}-${{ hashFiles(format('{0}/.image-garden.mk', inputs.spread-subdir)) }}
         - name: Restore mtime of .image-garden.mk
           if: hashFiles('.image-garden.mk') != ''
           shell: bash
