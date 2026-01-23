@@ -21,6 +21,9 @@ inputs:
     cache-prepared-images:
         description: Use GitHub cache to store project-specific images (cache-intensive, scales poorly with number of systems)
         default: "false"
+    cache-deb-packages:
+        description: Use apt-cacher for caching deb packages
+        default: "true"
     spread-variant:
         description: Variant of spread to use
         default: ""
@@ -132,6 +135,14 @@ runs:
           shell: bash
           if: ${{ inputs.spread-variant != '' }}
           run: sudo snap set image-garden spread-variant=${{ inputs.spread-variant }}
+        - name: Disable apt-cacher-ng
+          shell: bash
+          if: ${{ !fromJSON(inputs.cache-deb-packages) }}
+          run: |
+            echo "::group::Disable apt-cacher-ng"
+            sudo snap stop image-garden.apt-cacher-ng
+            sudo rm -fv /var/snap/image-garden/common/apt-cacher-ng.sock
+            echo "::endgroup::"
         - name: Make the virtual machine image (dry run)
           shell: bash
           working-directory: ${{ inputs.spread-subdir }}
