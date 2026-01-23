@@ -271,6 +271,27 @@ The requested operating system and architecture combination is not available in 
 **Resolution:**
 Confirm that the specified OS and architecture are supported by **image-garden**, and update your inputs as needed.
 
+### Trouble accessing repositories using `apt`
+
+**Cause:**
+Image-garden bundles **apt-cacher-ng**, which acts as a caching proxy for apt
+repositories. This improves performance by caching downloaded packages across
+workflow runs, but may mask issues related to accessing said repositories in
+environments with strict policies for outgoing network connections.
+
+**Resolution:**
+Disable apt-cacher-ng by setting the `cache-deb-packages` input to `false` in your workflow:
+
+```yaml
+- name: Run integration tests
+  uses: zyga/image-garden-action@v0
+  with:
+    garden-system: debian-cloud-12
+    cache-deb-packages: "false"
+```
+
+This will stop the apt-cacher-ng service and remove its socket, allowing direct access to apt repositories.
+
 ## Further reading
 
 Consult documentation of [spread](https://github.com/canonical/spread) and
