@@ -40,6 +40,20 @@ both collection of artifacts and uploading collected files to GitHub.
 Optional suffix used to disambiguate GitHub artifacts that store spread artifacts.
 When missing the garden system name is used instead.
 
+### spread-variant
+
+Optional variant of spread to use. Consult spread documentation for available variants.
+
+### spread-live
+
+Optional boolean flag to enable live mode for spread. When set to `"true"`, the `-live`
+flag is passed to the spread command, allowing interactive control of the test execution.
+
+**Constraint:** `spread-live` can only be used when `spread-variant` is set to `"plus"`.
+The action will fail with an error if this constraint is violated.
+
+Default: `"false"`
+
 ## Usage
 
 Follow the steps to get started:

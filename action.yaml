@@ -27,6 +27,9 @@ inputs:
     spread-variant:
         description: Variant of spread to use
         default: ""
+    spread-live:
+        description: Enable live mode for spread (only available when spread-variant is "plus")
+        default: "false"
     spread-subdir:
         description: Sub-directory of the project where spread.yaml resides in
         default: "."
@@ -135,6 +138,15 @@ runs:
           shell: bash
           if: ${{ inputs.spread-variant != '' }}
           run: sudo snap set image-garden spread-variant=${{ inputs.spread-variant }}
+        - name: Validate spread-live constraint
+          shell: bash
+          run: |
+            if ${{ fromJSON(inputs.spread-live) }}; then
+              if [ "${{ inputs.spread-variant }}" != "plus" ]; then
+                echo "::error::spread-live can only be used when spread-variant is set to 'plus'"
+                exit 1
+              fi
+            fi
         - name: Disable apt-cacher-ng
           shell: bash
           if: ${{ !fromJSON(inputs.cache-deb-packages) }}
@@ -178,7 +190,7 @@ runs:
             set +e
             spread \
               ${{ inputs.spread-artifacts && format('-artifacts {0}', inputs.spread-artifacts) || '' }} \
-              -v ${{ inputs.spread-backend }}:${{ inputs.garden-system }}:${{ inputs.spread-tasks }} \
+              -v ${{ fromJSON(inputs.spread-live) && '-live ' || '' }}${{ inputs.spread-backend }}:${{ inputs.garden-system }}:${{ inputs.spread-tasks }} \
               2>&1 | tee spread.log
             SPREAD_EXIT_CODE=${PIPESTATUS[0]}
             set -e
