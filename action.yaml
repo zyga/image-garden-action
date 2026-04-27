@@ -70,18 +70,18 @@ runs:
             echo "::endgroup::"
         - name: Cache downloaded snaps (host only)
           if: ${{ fromJSON(inputs.cache-host-snaps) }}
-          uses: actions/cache@v4
+          uses: actions/cache@v5
           with:
             path: ${{ inputs.spread-subdir }}/.image-garden/host-snap-cache
             key: host-snaps
         - name: Cache pristine virtual machine images
           if: ${{ fromJSON(inputs.cache-pristine-images) }}
-          uses: actions/cache@v4
+          uses: actions/cache@v5
           with:
             path: ~/snap/image-garden/common/cache/dl
             key: image-garden-dl-${{ inputs.garden-system }}
         - name: Cache prepared virtual machine images
-          uses: actions/cache@v4
+          uses: actions/cache@v5
           if: ${{ fromJSON(inputs.cache-prepared-images) }}
           with:
             path: |
@@ -185,7 +185,7 @@ runs:
             exit $SPREAD_EXIT_CODE
         - name: Upload spread log
           if: always()
-          uses: actions/upload-artifact@v4
+          uses: actions/upload-artifact@v7
           with:
             name: spread-log-${{ inputs.spread-artifacts-suffix || inputs.garden-system }}
             path: ${{ format('{0}/spread.log', inputs.spread-subdir) }}
@@ -197,13 +197,13 @@ runs:
             find "${{ inputs.spread-artifacts }}" -depth -name '*:*' -execdir bash -c 'mv -v "$1" "${1//:/_}"' bash "{}" \;
         - name: Upload spread artifacts
           if: ${{ inputs.spread-artifacts }}
-          uses: actions/upload-artifact@v4
+          uses: actions/upload-artifact@v7
           with:
             name: spread-artifacts-${{ inputs.spread-artifacts-suffix || inputs.garden-system }}
             path: ${{ inputs.spread-subdir && format('{0}/', inputs.spread-subdir) || '' }}${{ inputs.spread-artifacts }}
         - name: Upload logs as artifacts
           if: ${{ failure() }}
-          uses: actions/upload-artifact@v4
+          uses: actions/upload-artifact@v7
           with:
             name: boot-logs
             path: ${{ inputs.spread-subdir && format('{0}/', inputs.spread-subdir) || '' }}.image-garden/*.log
