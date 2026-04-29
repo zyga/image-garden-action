@@ -109,7 +109,12 @@ runs:
             echo "::endgroup::"
         - name: Make permissions on /dev/kvm more lax
           shell: bash
-          run: sudo chmod -v 666 /dev/kvm
+          run: |
+            if [ -e /dev/kvm ]; then
+              sudo chmod -v 666 /dev/kvm
+            else
+              echo "::notice::/dev/kvm is not available, continuing without hardware acceleration"
+            fi
         - name: Work around a bug in snapd suspend logic
           shell: bash
           run: |
