@@ -12,7 +12,15 @@
 #
 # Default providers and base snaps are not automatically installed and should
 # be installed with snap-install before the actual application snap.
+
 set -eu
+
+# Maximum number of attempts to query snapd when it is temporarily unavailable,
+# for example while entering or recovering from standby mode. Snapd may go into
+# a brief idle state when no snaps are installed yet, causing curl requests over
+# /run/snapd.socket to fail transiently.
+MAX_RETRIES=5
+RETRY_DELAY=2
 
 : "${X_SPREAD_SNAP_CACHE_DIR:=/mnt/cache/snaps}"
 
@@ -42,17 +50,29 @@ mkdir -p /tmp/snap-install
 cd /tmp/snap-install
 
 echo "Asking snapd about snap $snap"
-if ! curl \
-	--fail \
-	--dump-header "$snap".header \
-	--silent \
-	--show-error \
-	--unix-socket /run/snapd.socket \
-	http://localhost/v2/find?name="$snap" \
-	>"$snap".response; then
+attempt=0
+while [ "$attempt" -lt "$MAX_RETRIES" ]; do
+	attempt=$((attempt + 1))
+	if curl \
+		--fail \
+		--dump-header "$snap".header \
+		--silent \
+		--show-error \
+		--connect-timeout 5 \
+		--max-time 30 \
+		--unix-socket /run/snapd.socket \
+		http://localhost/v2/find?name="$snap" \
+		>"$snap".response; then
+		break
+	fi
+	echo "snapd query attempt $attempt/$MAX_RETRIES failed, retrying in ${RETRY_DELAY}s..." >&2
 	rm -f "$snap".response
-	exit 69 # EX_UNAVAILABLE
-fi
+	if [ "$attempt" -lt "$MAX_RETRIES" ]; then
+		sleep "$RETRY_DELAY"
+	else
+		exit 69 # EX_UNAVAILABLE
+	fi
+done
 
 json_status="$(jq --raw-output .status "$snap".response)"
 if [ "$json_status" != OK ]; then
