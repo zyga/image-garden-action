@@ -260,6 +260,18 @@ runs:
               # unlike "pkgproxyctl setup snap", which names the host name.
               curl -fsSL http://127.0.0.1:3142/setup/snap | sudo sh
             fi
+            # snapd sends every http:// request through its proxy.http setting,
+            # with no exception for loopback addresses or no_proxy, and so its
+            # requests to pkgproxy at http://127.0.0.1:3142 too, which the
+            # proxy cannot reach: it answers 503. Self-hosted runners behind
+            # an egress proxy set it. Now that snapd downloads everything from
+            # pkgproxy, it needs no proxy for http://, and pkgproxy reaches the
+            # store on its own. proxy.https stays as it is.
+            proxy_http="$(sudo snap get system proxy.http 2>/dev/null || true)"
+            if [ -n "$proxy_http" ]; then
+              echo "::notice::Unsetting snapd's proxy.http ($proxy_http): snapd would send its requests to pkgproxy at 127.0.0.1 through it, which cannot reach them"
+              sudo snap unset system proxy.http
+            fi
             echo "::endgroup::"
         - name: Install image-garden snap
           shell: bash
