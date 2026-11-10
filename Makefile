@@ -5,7 +5,7 @@
 check: check-shellcheck check-shfmt check-reuse
 fmt: fmt-sh fmt-yaml
 
-SCRIPTS_SH=snap-install tests/check-action
+SCRIPTS_SH=tests/check-action
 # https://github.com/mvdan/sh
 check-shfmt:
 	shfmt --diff $(SCRIPTS_SH)

@@ -166,20 +166,21 @@ runs:
             ARCHIVE_DIR: ${{ runner.temp }}/image-garden-pkgproxy
           run: |
             echo "::group::Install snapd and pkgproxy snaps"
-            # snap-install keeps downloaded snaps here, for this job only:
-            # pkgproxy is what caches them between jobs.
-            export X_SPREAD_SNAP_CACHE_DIR="$RUNNER_TEMP"/image-garden-snaps
             if [ "$PKGPROXY_MODE" = external ]; then
               # Point snapd at the pkgproxy, unless its owner already did.
               if ! grep -qs SNAPPY_FORCE_API_URL /etc/systemd/system/snapd.service.d/*.conf; then
                 curl -fsSL http://127.0.0.1:3142/setup/snap | sudo sh
               fi
-              export X_SNAP_INSTALL_PKGPROXY=http://127.0.0.1:3142/
             fi
-            sudo --preserve-env=X_SPREAD_SNAP_CACHE_DIR,X_SNAP_INSTALL_PKGPROXY ${{ github.action_path }}/snap-install snapd "$SNAPD_CHANNEL"
-            sudo --preserve-env=X_SPREAD_SNAP_CACHE_DIR,X_SNAP_INSTALL_PKGPROXY ${{ github.action_path }}/snap-install core26
+            # In snap mode, snapd and pkgproxy (and core26, their base) come
+            # straight from the store, as there is no pkgproxy yet.
+            if snap list snapd >/dev/null 2>&1; then
+              sudo snap refresh --channel="$SNAPD_CHANNEL" snapd
+            else
+              sudo snap install --channel="$SNAPD_CHANNEL" snapd
+            fi
             if [ "$PKGPROXY_MODE" = snap ]; then
-              sudo --preserve-env=X_SPREAD_SNAP_CACHE_DIR ${{ github.action_path }}/snap-install pkgproxy
+              sudo snap install pkgproxy
               # Fill the cache before pkgproxy uses it. The archive keeps the
               # extended attributes where pkgproxy keeps what it knows of
               # each file, which the tar of actions/cache would drop.
@@ -208,11 +209,9 @@ runs:
             IMAGE_GARDEN_CHANNEL: ${{ inputs.image-garden-channel }}
           run: |
             echo "::group::Install image-garden snap"
-            # Both the snap and its components, which its hooks install, come
-            # through pkgproxy.
-            export X_SPREAD_SNAP_CACHE_DIR="$RUNNER_TEMP"/image-garden-snaps
-            export X_SNAP_INSTALL_PKGPROXY=http://127.0.0.1:3142/
-            sudo --preserve-env=X_SPREAD_SNAP_CACHE_DIR,X_SNAP_INSTALL_PKGPROXY ${{ github.action_path }}/snap-install --devmode image-garden "$IMAGE_GARDEN_CHANNEL"
+            # snapd downloads the snap, its base and the components that its
+            # hooks install through pkgproxy, which caches them.
+            sudo snap install --devmode --channel="$IMAGE_GARDEN_CHANNEL" image-garden
             echo "::endgroup::"
         - name: Point image-garden at pkgproxy
           shell: bash

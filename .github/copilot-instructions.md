@@ -57,8 +57,8 @@ The action allows developers to test their applications in real deployment envir
 
 ### Key Files
 - **`action.yaml`**: Main action definition with inputs, outputs, and steps
-- **`snap-install`**: Shell script for installing snap packages, downloading them through pkgproxy when `X_SNAP_INSTALL_PKGPROXY` is set
 - **`README.md`**: Comprehensive documentation for users
+- **`tests/check-action`**: Shell script that checks, in CI, what the action did
 - **`Makefile`**: Defines linting, formatting, and checking tasks
 - **`.gitignore`**: Excludes temporary files and build artifacts
 - **`.yamlfmt.yaml`**: YAML formatting configuration
