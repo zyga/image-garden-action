@@ -236,6 +236,26 @@ runs:
               # so turn that off. offline-mode=never would not do: it is the
               # mode set by hand, which going offline by itself overrides.
               sudo snap set pkgproxy auto-offline=off
+              # pkgproxy reaches its upstreams through the proxy that snapd
+              # has, if any: it gets http_proxy and https_proxy from
+              # /etc/environment, which snapd writes from its proxy settings.
+              # Unsetting snapd's proxy.http, below, would take http_proxy
+              # away from pkgproxy at its next start, so give pkgproxy the
+              # same settings as its own. pkgproxy 0.13 and later use them;
+              # earlier versions ignore them, and keep getting the proxy from
+              # /etc/environment until then.
+              for key in http https no-proxy; do
+                value="$(sudo snap get system proxy."$key" 2>/dev/null || true)"
+                [ -n "$value" ] || continue
+                case "$key:$value" in
+                no-proxy:* | *:http://* | *:https://*)
+                  sudo snap set pkgproxy "${key%-proxy}-proxy=$value"
+                  ;;
+                *)
+                  echo "::warning::Not giving pkgproxy snapd's proxy.$key ($value): pkgproxy wants an http:// or https:// URL"
+                  ;;
+                esac
+              done
               # Fill the cache before pkgproxy uses it. The archive keeps the
               # extended attributes where pkgproxy keeps what it knows of
               # each file, which the tar of actions/cache would drop.
