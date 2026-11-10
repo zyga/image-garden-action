@@ -12,15 +12,12 @@ inputs:
     image-garden-channel:
         description: Snap store channel for the image-garden snap.
         default: latest/stable
-    cache-host-snaps:
-        description: Use GitHub cache to store snaps needed on the host (recommended)
-        default: "true"
-    cache-pristine-images:
-        description: Use GitHub cache to store pristine images (recommended)
-        default: "true"
     cache-prepared-images:
         description: Use GitHub cache to store project-specific images (cache-intensive, scales poorly with number of systems)
         default: "false"
+    save-cache:
+        description: Which runs save the pkgproxy cache, holding snaps, pristine images and guest packages (default-branch, always or never)
+        default: default-branch
     spread-variant:
         description: Variant of spread to use
         default: ""
@@ -68,18 +65,18 @@ runs:
             echo "Presence of /dev/kvm"
             ls -l /dev/kvm || true
             echo "::endgroup::"
-        - name: Cache downloaded snaps (host only)
-          if: ${{ fromJSON(inputs.cache-host-snaps) }}
-          uses: actions/cache@v5
-          with:
-            path: ${{ inputs.spread-subdir }}/.image-garden/host-snap-cache
-            key: host-snaps
-        - name: Cache pristine virtual machine images
-          if: ${{ fromJSON(inputs.cache-pristine-images) }}
-          uses: actions/cache@v5
-          with:
-            path: ~/snap/image-garden/common/cache/dl
-            key: image-garden-dl-${{ inputs.garden-system }}
+        - name: Validate inputs
+          shell: bash
+          env:
+            SAVE_CACHE: ${{ inputs.save-cache }}
+          run: |
+            case "$SAVE_CACHE" in
+            default-branch | always | never) ;;
+            *)
+              echo "::error::save-cache must be default-branch, always or never, not '$SAVE_CACHE'"
+              exit 1
+              ;;
+            esac
         - name: Cache prepared virtual machine images
           uses: actions/cache@v5
           if: ${{ fromJSON(inputs.cache-prepared-images) }}
@@ -89,7 +86,7 @@ runs:
                 !${{ inputs.spread-subdir }}/.image-garden/*.log
             key: image-garden-img-${{ inputs.garden-system }}-${{ hashFiles(format('{0}/.image-garden.mk', inputs.spread-subdir)) }}
         - name: Restore mtime of .image-garden.mk
-          if: hashFiles('.image-garden.mk') != ''
+          if: hashFiles(format('{0}/.image-garden.mk', inputs.spread-subdir)) != ''
           shell: bash
           working-directory: ${{ inputs.spread-subdir }}
           run: |
@@ -124,14 +121,104 @@ runs:
             sudo systemctl daemon-reload
             sudo systemctl restart snapd.service
             echo "::endgroup::"
-        - name: Install snapd and image-garden snaps
+        # pkgproxy caches everything this action downloads: snaps and their
+        # components on the host, pristine images, and apt, snap and go
+        # traffic of the guests. When something, such as the setup-pkgproxy
+        # action, already runs a pkgproxy on port 3142, use it ("external"
+        # mode) and leave its cache alone. Otherwise install the pkgproxy snap
+        # and keep its cache in the GitHub cache ("snap" mode).
+        - name: Detect pkgproxy
+          id: pkgproxy
           shell: bash
           run: |
-            echo "::group::Install snapd and image-garden snaps"
-            export X_SPREAD_SNAP_CACHE_DIR="$(pwd)"/.image-garden/host-snap-cache
-            sudo ${{ github.action_path }}/snap-install snapd ${{ inputs.snapd-channel }}
-            sudo ${{ github.action_path }}/snap-install core24
-            sudo ${{ github.action_path }}/snap-install --devmode image-garden ${{ inputs.image-garden-channel }}
+            if [ -n "$(ss -Hltn 'sport = :3142')" ]; then
+              echo "::notice::Using the pkgproxy that already listens on port 3142, such as one from setup-pkgproxy. Its cache is not saved by this action."
+              echo "mode=external" >>"$GITHUB_OUTPUT"
+            else
+              echo "mode=snap" >>"$GITHUB_OUTPUT"
+            fi
+        - name: Restore pkgproxy cache
+          id: pkgproxy-cache
+          if: ${{ steps.pkgproxy.outputs.mode == 'snap' }}
+          uses: actions/cache/restore@v5
+          with:
+            path: ${{ runner.temp }}/image-garden-pkgproxy/cache.tar
+            key: image-garden-pkgproxy-v1-${{ runner.arch }}-${{ inputs.garden-system }}-${{ github.run_id }}-${{ github.run_attempt }}
+            restore-keys: image-garden-pkgproxy-v1-${{ runner.arch }}-${{ inputs.garden-system }}-
+        - name: Install snapd and pkgproxy snaps
+          shell: bash
+          env:
+            PKGPROXY_MODE: ${{ steps.pkgproxy.outputs.mode }}
+            SNAPD_CHANNEL: ${{ inputs.snapd-channel }}
+            ARCHIVE_DIR: ${{ runner.temp }}/image-garden-pkgproxy
+          run: |
+            echo "::group::Install snapd and pkgproxy snaps"
+            # snap-install keeps downloaded snaps here, for this job only:
+            # pkgproxy is what caches them between jobs.
+            export X_SPREAD_SNAP_CACHE_DIR="$RUNNER_TEMP"/image-garden-snaps
+            if [ "$PKGPROXY_MODE" = external ]; then
+              # Point snapd at the pkgproxy, unless its owner already did.
+              if ! grep -qs SNAPPY_FORCE_API_URL /etc/systemd/system/snapd.service.d/*.conf; then
+                curl -fsSL http://127.0.0.1:3142/setup/snap | sudo sh
+              fi
+              export X_SNAP_INSTALL_PKGPROXY=http://127.0.0.1:3142/
+            fi
+            sudo --preserve-env=X_SPREAD_SNAP_CACHE_DIR,X_SNAP_INSTALL_PKGPROXY ${{ github.action_path }}/snap-install snapd "$SNAPD_CHANNEL"
+            sudo --preserve-env=X_SPREAD_SNAP_CACHE_DIR,X_SNAP_INSTALL_PKGPROXY ${{ github.action_path }}/snap-install core26
+            if [ "$PKGPROXY_MODE" = snap ]; then
+              sudo --preserve-env=X_SPREAD_SNAP_CACHE_DIR ${{ github.action_path }}/snap-install pkgproxy
+              # Fill the cache before pkgproxy uses it. The archive keeps the
+              # extended attributes where pkgproxy keeps what it knows of
+              # each file, which the tar of actions/cache would drop.
+              sudo snap stop pkgproxy
+              if [ -f "$ARCHIVE_DIR"/cache.tar ]; then
+                sudo tar --xattrs --xattrs-include='user.*' -xf "$ARCHIVE_DIR"/cache.tar -C /var/snap/pkgproxy/common/cache
+                rm -f "$ARCHIVE_DIR"/cache.tar
+              fi
+              mkdir -p "$ARCHIVE_DIR"
+              sudo find /var/snap/pkgproxy/common/cache -type f ! -name stats.json -printf '%P %s\n' | sort | sha256sum >"$ARCHIVE_DIR"/fingerprint.restored
+              sudo snap start pkgproxy
+              for _ in $(seq 60); do
+                if [ -n "$(ss -Hltn 'sport = :3142')" ]; then
+                  break
+                fi
+                sleep 1
+              done
+              # The script served over HTTP names the address it came from,
+              # unlike "pkgproxyctl setup snap", which names the host name.
+              curl -fsSL http://127.0.0.1:3142/setup/snap | sudo sh
+            fi
+            echo "::endgroup::"
+        - name: Install image-garden snap
+          shell: bash
+          env:
+            IMAGE_GARDEN_CHANNEL: ${{ inputs.image-garden-channel }}
+          run: |
+            echo "::group::Install image-garden snap"
+            # Both the snap and its components, which its hooks install, come
+            # through pkgproxy.
+            export X_SPREAD_SNAP_CACHE_DIR="$RUNNER_TEMP"/image-garden-snaps
+            export X_SNAP_INSTALL_PKGPROXY=http://127.0.0.1:3142/
+            sudo --preserve-env=X_SPREAD_SNAP_CACHE_DIR,X_SNAP_INSTALL_PKGPROXY ${{ github.action_path }}/snap-install --devmode image-garden "$IMAGE_GARDEN_CHANNEL"
+            echo "::endgroup::"
+        - name: Point image-garden at pkgproxy
+          shell: bash
+          env:
+            PKGPROXY_MODE: ${{ steps.pkgproxy.outputs.mode }}
+          run: |
+            echo "::group::Point image-garden at pkgproxy"
+            if [ "$PKGPROXY_MODE" = snap ]; then
+              sudo snap connect image-garden:pkgproxy-sockets pkgproxy:sockets
+              sudo snap set image-garden pkgproxy=snap
+            else
+              # Guests reach the pkgproxy at the address of the host, as
+              # 127.0.0.1 would be the guest itself.
+              host_ip="$(hostname -I | awk '{ print $1 }')"
+              sudo snap set image-garden pkgproxy=http://"$host_ip":3142
+            fi
+            # image-garden downloads pristine images through pkgproxy, by
+            # their checksum, when told where it is.
+            echo "GARDEN_DL_PKGPROXY=http://127.0.0.1:3142" >>"$GITHUB_ENV"
             echo "::endgroup::"
         - name: Use spread from image-garden snap
           shell: bash
@@ -214,3 +301,61 @@ runs:
             name: boot-logs
             path: ${{ inputs.spread-subdir && format('{0}/', inputs.spread-subdir) || '' }}.image-garden/*.log
             if-no-files-found: ignore
+        # Like setup-pkgproxy: only the default branch saves, by default, as
+        # its cache is the one that every other ref can restore. Failed and
+        # cancelled jobs save too, as whatever pkgproxy cached is valid. A job
+        # that added nothing to the cache saves nothing.
+        - name: Prepare pkgproxy cache for saving
+          id: pkgproxy-archive
+          if: ${{ always() && steps.pkgproxy.outputs.mode == 'snap' }}
+          shell: bash
+          env:
+            SAVE_CACHE: ${{ inputs.save-cache }}
+            DEFAULT_BRANCH_REF: refs/heads/${{ github.event.repository.default_branch }}
+            RESTORED_KEY: ${{ steps.pkgproxy-cache.outputs.cache-matched-key }}
+            ARCHIVE_DIR: ${{ runner.temp }}/image-garden-pkgproxy
+          run: |
+            if ! snap list pkgproxy >/dev/null 2>&1; then
+              echo "The pkgproxy snap is not installed, there is no cache to save"
+              exit 0
+            fi
+            {
+              echo "### pkgproxy cache"
+              echo
+              echo "Restored from: \`${RESTORED_KEY:-nothing, cold start}\`"
+              echo
+              echo '```'
+              sudo pkgproxy.pkgproxyctl stats | head -n 40 || true
+              echo '```'
+            } >>"$GITHUB_STEP_SUMMARY"
+            case "$SAVE_CACHE" in
+            always) reason="" ;;
+            default-branch)
+              if [ "$GITHUB_REF" = "$DEFAULT_BRANCH_REF" ]; then
+                reason=""
+              else
+                reason="only the default branch saves (save-cache: default-branch)"
+              fi
+              ;;
+            *) reason="save-cache is $SAVE_CACHE" ;;
+            esac
+            if [ -z "$reason" ]; then
+              sudo snap stop pkgproxy
+              sudo find /var/snap/pkgproxy/common/cache -type f ! -name stats.json -printf '%P %s\n' | sort | sha256sum >"$ARCHIVE_DIR"/fingerprint.final
+              if cmp -s "$ARCHIVE_DIR"/fingerprint.restored "$ARCHIVE_DIR"/fingerprint.final; then
+                reason="nothing was added to it"
+              fi
+            fi
+            if [ -n "$reason" ]; then
+              echo "Not saving the pkgproxy cache: $reason" | tee -a "$GITHUB_STEP_SUMMARY"
+              exit 0
+            fi
+            sudo tar --xattrs --xattrs-include='user.*' -cf "$ARCHIVE_DIR"/cache.tar -C /var/snap/pkgproxy/common/cache .
+            echo "Saving the pkgproxy cache ($(du -h "$ARCHIVE_DIR"/cache.tar | cut -f 1))" | tee -a "$GITHUB_STEP_SUMMARY"
+            echo "save=true" >>"$GITHUB_OUTPUT"
+        - name: Save pkgproxy cache
+          if: ${{ always() && steps.pkgproxy-archive.outputs.save == 'true' }}
+          uses: actions/cache/save@v5
+          with:
+            path: ${{ runner.temp }}/image-garden-pkgproxy/cache.tar
+            key: image-garden-pkgproxy-v1-${{ runner.arch }}-${{ inputs.garden-system }}-${{ github.run_id }}-${{ github.run_attempt }}

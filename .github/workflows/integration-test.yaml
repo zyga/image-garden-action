@@ -18,3 +18,34 @@ jobs:
               with:
                 garden-system: ubuntu-cloud-24.04
                 spread-subdir: tests/toy
+    toy-test-spread-plus:
+        runs-on: ubuntu-latest
+        steps:
+            - name: Checkout code
+              uses: actions/checkout@v6
+              with:
+                fetch-depth: 0
+            - name: Run toy integration test with spread-plus
+              uses: ./
+              with:
+                garden-system: ubuntu-cloud-24.04
+                spread-subdir: tests/toy
+                spread-variant: plus
+                # Shares the cache of toy-test, which saves it.
+                save-cache: never
+    toy-test-setup-pkgproxy:
+        runs-on: ubuntu-latest
+        steps:
+            - name: Checkout code
+              uses: actions/checkout@v6
+              with:
+                fetch-depth: 0
+            - name: Set up pkgproxy caching proxy
+              uses: zyga/setup-pkgproxy@v2
+              with:
+                save-package-cache: never
+            - name: Run toy integration test with an existing pkgproxy
+              uses: ./
+              with:
+                garden-system: ubuntu-cloud-24.04
+                spread-subdir: tests/toy

@@ -26,6 +26,11 @@ https://github.com/canonical/snapd-smoke-tests/
 
 ## Inputs
 
+### garden-system
+
+Name of the image-garden system to test on, matching one of the systems in
+`spread.yaml`. Required.
+
 ### spread-subdir
 
 Optional sub-directory where `spread.yaml` is located.
@@ -53,6 +58,65 @@ flag is passed to the spread command, allowing interactive control of the test e
 The action will fail with an error if this constraint is violated.
 
 Default: `"false"`
+
+### cache-prepared-images
+
+Optional boolean flag to keep the project-specific virtual machine images,
+prepared from `.image-garden.mk`, in the GitHub cache. This uses a lot of cache
+storage and scales poorly with the number of systems.
+
+Default: `"false"`
+
+### save-cache
+
+Which runs save the pkgproxy cache, see [Caching](#caching): `default-branch`,
+`always` or `never`.
+
+Default: `"default-branch"`
+
+## Caching
+
+The action uses [pkgproxy](https://gitlab.com/zygoon/pkgproxy) as its only
+cache for downloads. Everything goes through it: the image-garden snap and its
+components on the runner, the pristine images (by their checksum, with
+`GARDEN_DL_PKGPROXY`), and the apt, snap and go downloads of the virtual
+machines.
+
+By default the action installs the pkgproxy snap and connects image-garden to
+it (`snap set image-garden pkgproxy=snap`). The pkgproxy cache is restored from
+the GitHub cache at the start of the job and, if the job added to it, saved at
+the end, as an archive that keeps the extended attributes pkgproxy relies on.
+
+As in [setup-pkgproxy](https://github.com/zyga/setup-pkgproxy), only runs on
+the default branch save the cache (`save-cache: default-branch`). Pull
+requests and other branches restore the default branch's cache but never save
+their own, which would only use up the repository's cache storage and evict
+the default branch's cache. Make sure your workflow also runs on pushes to the
+default branch, or nothing is ever saved. Failed and cancelled jobs save too:
+whatever pkgproxy cached is valid.
+
+Each `garden-system` gets a cache of its own, as each downloads a different
+image. When several jobs use the same system, let one of them save and give
+the others `save-cache: never`.
+
+### Using setup-pkgproxy as well
+
+If a pkgproxy already listens on port 3142 when the action starts, for example
+because the job used [setup-pkgproxy](https://github.com/zyga/setup-pkgproxy)
+first, the action uses that pkgproxy and does not install the snap.
+Virtual machines then reach it at the address of the runner. The cache belongs
+to setup-pkgproxy in that case, and this action neither restores nor saves
+one, so there is still a single cache.
+
+setup-pkgproxy must come **before** this action. Run after it, setup-pkgproxy
+cannot listen on port 3142, which the pkgproxy snap already uses.
+
+## Upgrading
+
+- `cache-host-snaps` and `cache-pristine-images` are gone: pkgproxy caches
+  both host snaps and pristine images. Remove them from your workflows.
+- `cache-deb-packages` is gone: pkgproxy, which replaced apt-cacher-ng in
+  image-garden, is always used.
 
 ## Usage
 
@@ -115,10 +179,10 @@ Follow the steps to get started:
             fi
             exec image-garden discard "$SPREAD_SYSTEM_ADDRESS"
         systems:
-          - debian-cloud-12:
+          - debian-cloud-13:
               username: root
               password: root
-          - fedora-cloud-42:
+          - fedora-cloud-44:
               username: root
               password: root
     suites:
@@ -144,7 +208,7 @@ Follow the steps to get started:
 5. Install the `image-garden` snap.
 
     ```sh
-    sudo snap install --edge image-garden
+    sudo snap install image-garden
     ```
 
     Your system must support snap packages. In general see
@@ -214,33 +278,29 @@ Follow the steps to get started:
             branches: ["main"]
         pull_request:
     jobs:
-        debian-12:
+        debian-13:
             runs-on: ubuntu-latest
             steps:
                 - name: Checkout code
-                  uses: actions/checkout@v4
+                  uses: actions/checkout@v6
                   # This is essential for git restore-mtime to work correctly.
                   with:
                     fetch-depth: 0
                 - name: Run integration tests
                   uses: zyga/image-garden-action@v0
                   with:
-                    snapd-channel: latest/edge
-                    image-garden-channel: latest/edge
-                    garden-system: debian-cloud-12
-        fedora-42:
+                    garden-system: debian-cloud-13
+        fedora-44:
             runs-on: ubuntu-latest
             steps:
                 - name: Checkout code
-                  uses: actions/checkout@v4
+                  uses: actions/checkout@v6
                   with:
                     fetch-depth: 0
                 - name: Run integration tests
                   uses: zyga/image-garden-action@v0
                   with:
-                    snapd-channel: latest/edge
-                    image-garden-channel: latest/edge
-                    garden-system: fedora-cloud-42
+                    garden-system: fedora-cloud-44
     ```
 
 10. Add new files to git

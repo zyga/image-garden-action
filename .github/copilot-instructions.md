@@ -10,7 +10,7 @@ The action allows developers to test their applications in real deployment envir
 
 - **GitHub Actions**: Composite action (using `runs.using: composite`)
 - **Shell scripting**: Bash scripts for action steps
-- **Snap packages**: Uses snapd, image-garden, and core24 snaps
+- **Snap packages**: Uses snapd, core26, image-garden (with its qemu, pkgproxy and spread components) and pkgproxy snaps
 - **Virtualization**: QEMU/KVM for virtual machine management
 - **Testing framework**: Spread for integration testing
 - **Cloud-init**: For VM configuration and provisioning
@@ -57,7 +57,7 @@ The action allows developers to test their applications in real deployment envir
 
 ### Key Files
 - **`action.yaml`**: Main action definition with inputs, outputs, and steps
-- **`snap-install`**: Bash script for installing snap packages with caching support
+- **`snap-install`**: Shell script for installing snap packages, downloading them through pkgproxy when `X_SNAP_INSTALL_PKGPROXY` is set
 - **`README.md`**: Comprehensive documentation for users
 - **`Makefile`**: Defines linting, formatting, and checking tasks
 - **`.gitignore`**: Excludes temporary files and build artifacts
@@ -127,8 +127,13 @@ make check             # Run all checks
 ## Specific Guidelines for This Action
 
 ### Caching Strategy
-- Host snaps should be cached for reusability
-- Pristine images should be cached by system
+- pkgproxy is the single cache for host snaps and components, pristine images
+  (`GARDEN_DL_PKGPROXY`) and guest apt/snap/go traffic
+- Without an existing pkgproxy on port 3142 the action installs the pkgproxy
+  snap and saves its cache, as a `tar --xattrs` archive, keyed per arch and
+  garden system; with one (e.g. from setup-pkgproxy) it reuses it and leaves
+  caching to its owner
+- Like setup-pkgproxy, only the default branch saves by default (`save-cache`)
 - Prepared images caching is optional (scales poorly with many systems)
 - Always exclude log files from caches
 

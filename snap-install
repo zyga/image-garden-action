@@ -10,6 +10,11 @@
 # taken to update the tracking channel so that the actual operation is as
 # closely similar to plain "snap install" as possible.
 #
+# When $X_SNAP_INSTALL_PKGPROXY holds the address of a pkgproxy, such as
+# http://127.0.0.1:3142/, the snap is downloaded through it, so that pkgproxy
+# can cache it. Snapd itself is pointed at pkgproxy separately, by its
+# /setup/snap script.
+#
 # Default providers and base snaps are not automatically installed and should
 # be installed with snap-install before the actual application snap.
 
@@ -23,6 +28,11 @@ MAX_RETRIES=5
 RETRY_DELAY=2
 
 : "${X_SPREAD_SNAP_CACHE_DIR:=/mnt/cache/snaps}"
+
+if [ -n "${X_SNAP_INSTALL_PKGPROXY-}" ]; then
+	# "snap download" talks to the store itself, not through snapd.
+	export SNAPPY_FORCE_API_URL="$X_SNAP_INSTALL_PKGPROXY"
+fi
 
 if [ $# -ne 1 ] && [ $# -ne 2 ] && [ $# -ne 3 ]; then
 	echo "Usage: snap-install [--classic|--devmode] SNAP [CHANNEL]" >&2
