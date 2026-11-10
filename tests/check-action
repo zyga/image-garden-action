@@ -38,7 +38,7 @@ else
 	fail "pkgproxy mode is '$MODE', expected '$EXPECT_MODE'"
 fi
 
-setting="$(snap get image-garden pkgproxy 2>/dev/null || true)"
+setting="$(sudo snap get image-garden pkgproxy 2>/dev/null || true)"
 case "$EXPECT_MODE" in
 snap)
 	unit=snap.pkgproxy.pkgproxy
@@ -75,7 +75,7 @@ external)
 esac
 
 if [ -n "$EXPECT_SPREAD_VARIANT" ]; then
-	variant="$(snap get image-garden spread-variant 2>/dev/null || true)"
+	variant="$(sudo snap get image-garden spread-variant 2>/dev/null || true)"
 	revision="$(snap list image-garden | awk 'NR == 2 { print $3 }')"
 	if [ "$variant" = "$EXPECT_SPREAD_VARIANT" ]; then
 		pass "spread variant is $variant"
