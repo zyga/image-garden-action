@@ -112,7 +112,20 @@ runs:
             rm -f git-restore-mtime_2022.12-1_all.deb
             # sudo apt update
             # sudo apt install -y git-restore-mtime
-            git restore-mtime .image-garden.mk
+            # git restore-mtime runs git whatchanged, which newer git refuses
+            # to run ("refusing to run without --i-still-use-this"). Map it to
+            # the replacement git suggests, for git restore-mtime only, as
+            # image-garden 0.7 does in its container.
+            export GIT_CONFIG_COUNT=1
+            export GIT_CONFIG_KEY_0=alias.whatchanged
+            export GIT_CONFIG_VALUE_0='log --raw --no-merges'
+            # git restore-mtime only warns when it cannot find the file in the
+            # history, and leaves the mtime of the checkout, which makes
+            # image-garden rebuild prepared images that did not change.
+            git restore-mtime .image-garden.mk 2>&1 | tee "$RUNNER_TEMP"/restore-mtime.log
+            if grep -q 'not found in the log' "$RUNNER_TEMP"/restore-mtime.log; then
+              echo "::warning::Cannot restore the mtime of .image-garden.mk from git history; check out with fetch-depth: 0"
+            fi
             echo "::endgroup::"
         - name: Make permissions on /dev/kvm more lax
           shell: bash
