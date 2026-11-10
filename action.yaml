@@ -323,7 +323,7 @@ runs:
           if: ${{ failure() }}
           uses: actions/upload-artifact@v7
           with:
-            name: boot-logs
+            name: boot-logs-${{ inputs.spread-artifacts-suffix || inputs.garden-system }}
             path: ${{ inputs.spread-subdir && format('{0}/', inputs.spread-subdir) || '' }}.image-garden/*.log
             if-no-files-found: ignore
         # Like setup-pkgproxy: only the default branch saves, by default, as

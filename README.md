@@ -42,8 +42,10 @@ both collection of artifacts and uploading collected files to GitHub.
 
 ### spread-artifacts-suffix
 
-Optional suffix used to disambiguate GitHub artifacts that store spread artifacts.
-When missing the garden system name is used instead.
+Optional suffix used to disambiguate the GitHub artifacts of the action: spread
+artifacts, the spread log and, when the job fails, the boot logs. When missing
+the garden system name is used instead. Set it when several jobs of a workflow
+test the same system.
 
 ### spread-variant
 

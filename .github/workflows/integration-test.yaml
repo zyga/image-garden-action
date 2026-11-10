@@ -38,6 +38,7 @@ jobs:
                 garden-system: ubuntu-cloud-24.04
                 spread-subdir: tests/toy
                 spread-variant: plus
+                spread-artifacts-suffix: ${{ github.job }}
                 # Shares the cache of toy-test, which saves it.
                 save-cache: never
             - name: Check what the action did
@@ -63,6 +64,7 @@ jobs:
               with:
                 garden-system: ubuntu-cloud-24.04
                 spread-subdir: tests/toy
+                spread-artifacts-suffix: ${{ github.job }}
             - name: Check what the action did
               run: tests/check-action
               env:
@@ -91,6 +93,7 @@ jobs:
                 spread-subdir: tests/toy
                 cache-key-prefix: image-garden-pkgproxy-test-${{ github.run_id }}-${{ github.run_attempt }}
                 save-cache: always
+                spread-artifacts-suffix: ${{ github.job }}
             - name: Check that the cache was saved
               if: ${{ steps.action.outputs.cache-saved != 'true' }}
               run: |
@@ -112,6 +115,7 @@ jobs:
                 spread-subdir: tests/toy
                 cache-key-prefix: image-garden-pkgproxy-test-${{ github.run_id }}-${{ github.run_attempt }}
                 save-cache: never
+                spread-artifacts-suffix: ${{ github.job }}
             - name: Check that the cache was restored
               if: ${{ !startsWith(steps.action.outputs.cache-restored-key, format('image-garden-pkgproxy-test-{0}-{1}-', github.run_id, github.run_attempt)) }}
               run: |
