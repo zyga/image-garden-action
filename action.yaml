@@ -54,7 +54,7 @@ outputs:
         value: ${{ steps.pkgproxy-cache.outputs.cache-matched-key }}
     cache-saved:
         description: Whether the pkgproxy cache was saved to the GitHub cache, "true" or "false"
-        value: ${{ steps.pkgproxy-save.outcome == 'success' && 'true' || 'false' }}
+        value: ${{ steps.pkgproxy-saved.outputs.cache-hit == 'true' && 'true' || 'false' }}
 branding:
     icon: download
     color: orange
@@ -352,6 +352,10 @@ runs:
             *) reason="save-cache is $SAVE_CACHE" ;;
             esac
             if [ -z "$reason" ]; then
+              # Stop pkgproxy for a consistent archive, but start it again
+              # whatever happens: snapd and GARDEN_DL_PKGPROXY still point
+              # at it for any later step of the job.
+              trap 'sudo snap start pkgproxy' EXIT
               sudo snap stop pkgproxy
               sudo find /var/snap/pkgproxy/common/cache -type f ! -name stats.json -printf '%P %s\n' | sort | sha256sum >"$ARCHIVE_DIR"/fingerprint.final
               if cmp -s "$ARCHIVE_DIR"/fingerprint.restored "$ARCHIVE_DIR"/fingerprint.final; then
@@ -372,3 +376,17 @@ runs:
           with:
             path: ${{ runner.temp }}/image-garden-pkgproxy/cache.tar
             key: ${{ inputs.cache-key-prefix }}-${{ runner.arch }}-${{ inputs.garden-system }}-${{ github.run_id }}-${{ github.run_attempt }}
+        # actions/cache/save only warns when it cannot save, so look the key
+        # up to know whether the cache exists.
+        - name: Check that the pkgproxy cache was saved
+          id: pkgproxy-saved
+          if: ${{ always() && steps.pkgproxy-save.outcome == 'success' }}
+          uses: actions/cache/restore@v5
+          with:
+            path: ${{ runner.temp }}/image-garden-pkgproxy/cache.tar
+            key: ${{ inputs.cache-key-prefix }}-${{ runner.arch }}-${{ inputs.garden-system }}-${{ github.run_id }}-${{ github.run_attempt }}
+            lookup-only: true
+        - name: Warn when the pkgproxy cache was not saved
+          if: ${{ always() && steps.pkgproxy-save.outcome == 'success' && steps.pkgproxy-saved.outputs.cache-hit != 'true' }}
+          shell: bash
+          run: echo "::warning::The pkgproxy cache could not be saved, see the Save pkgproxy cache step"
