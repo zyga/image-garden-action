@@ -18,6 +18,9 @@ inputs:
     save-cache:
         description: Which runs save the pkgproxy cache, holding snaps, pristine images and guest packages (default-branch, always or never)
         default: default-branch
+    cache-key-prefix:
+        description: Prefix of the GitHub cache keys of the pkgproxy cache; change it to start from an empty cache
+        default: image-garden-pkgproxy-v1
     spread-variant:
         description: Variant of spread to use
         default: ""
@@ -42,6 +45,16 @@ inputs:
     spread-artifacts-suffix:
         description: Suffix appended to GitHub artifact archive with spread artifacts
         default: ""
+outputs:
+    pkgproxy-mode:
+        description: How pkgproxy is provided, "snap" (installed by this action) or "external" (one that already listened on port 3142)
+        value: ${{ steps.pkgproxy.outputs.mode }}
+    cache-restored-key:
+        description: Key of the GitHub cache the pkgproxy cache was restored from, empty on a cold start or in external mode
+        value: ${{ steps.pkgproxy-cache.outputs.cache-matched-key }}
+    cache-saved:
+        description: Whether the pkgproxy cache was saved to the GitHub cache, "true" or "false"
+        value: ${{ steps.pkgproxy-save.outcome == 'success' && 'true' || 'false' }}
 branding:
     icon: download
     color: orange
@@ -143,8 +156,8 @@ runs:
           uses: actions/cache/restore@v5
           with:
             path: ${{ runner.temp }}/image-garden-pkgproxy/cache.tar
-            key: image-garden-pkgproxy-v1-${{ runner.arch }}-${{ inputs.garden-system }}-${{ github.run_id }}-${{ github.run_attempt }}
-            restore-keys: image-garden-pkgproxy-v1-${{ runner.arch }}-${{ inputs.garden-system }}-
+            key: ${{ inputs.cache-key-prefix }}-${{ runner.arch }}-${{ inputs.garden-system }}-${{ github.run_id }}-${{ github.run_attempt }}
+            restore-keys: ${{ inputs.cache-key-prefix }}-${{ runner.arch }}-${{ inputs.garden-system }}-
         - name: Install snapd and pkgproxy snaps
           shell: bash
           env:
@@ -354,8 +367,9 @@ runs:
             echo "Saving the pkgproxy cache ($(du -h "$ARCHIVE_DIR"/cache.tar | cut -f 1))" | tee -a "$GITHUB_STEP_SUMMARY"
             echo "save=true" >>"$GITHUB_OUTPUT"
         - name: Save pkgproxy cache
+          id: pkgproxy-save
           if: ${{ always() && steps.pkgproxy-archive.outputs.save == 'true' }}
           uses: actions/cache/save@v5
           with:
             path: ${{ runner.temp }}/image-garden-pkgproxy/cache.tar
-            key: image-garden-pkgproxy-v1-${{ runner.arch }}-${{ inputs.garden-system }}-${{ github.run_id }}-${{ github.run_attempt }}
+            key: ${{ inputs.cache-key-prefix }}-${{ runner.arch }}-${{ inputs.garden-system }}-${{ github.run_id }}-${{ github.run_attempt }}

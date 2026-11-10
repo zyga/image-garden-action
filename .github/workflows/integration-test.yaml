@@ -14,10 +14,16 @@ jobs:
               with:
                 fetch-depth: 0
             - name: Run toy integration test
+              id: action
               uses: ./
               with:
                 garden-system: ubuntu-cloud-24.04
                 spread-subdir: tests/toy
+            - name: Check what the action did
+              run: tests/check-action
+              env:
+                MODE: ${{ steps.action.outputs.pkgproxy-mode }}
+                EXPECT_MODE: snap
     toy-test-spread-plus:
         runs-on: ubuntu-latest
         steps:
@@ -26,6 +32,7 @@ jobs:
               with:
                 fetch-depth: 0
             - name: Run toy integration test with spread-plus
+              id: action
               uses: ./
               with:
                 garden-system: ubuntu-cloud-24.04
@@ -33,6 +40,12 @@ jobs:
                 spread-variant: plus
                 # Shares the cache of toy-test, which saves it.
                 save-cache: never
+            - name: Check what the action did
+              run: tests/check-action
+              env:
+                MODE: ${{ steps.action.outputs.pkgproxy-mode }}
+                EXPECT_MODE: snap
+                EXPECT_SPREAD_VARIANT: plus
     toy-test-setup-pkgproxy:
         runs-on: ubuntu-latest
         steps:
@@ -45,7 +58,104 @@ jobs:
               with:
                 save-package-cache: never
             - name: Run toy integration test with an existing pkgproxy
+              id: action
               uses: ./
               with:
                 garden-system: ubuntu-cloud-24.04
                 spread-subdir: tests/toy
+            - name: Check what the action did
+              run: tests/check-action
+              env:
+                MODE: ${{ steps.action.outputs.pkgproxy-mode }}
+                EXPECT_MODE: external
+            - name: Check that the action left the cache to setup-pkgproxy
+              if: ${{ steps.action.outputs.cache-saved != 'false' || steps.action.outputs.cache-restored-key != '' }}
+              run: |
+                echo "::error::the action used the GitHub cache next to setup-pkgproxy"
+                exit 1
+    # The pkgproxy cache, saved by one job and restored by the next. It uses
+    # cache keys of its own, deleted at the end, so that it neither uses
+    # the cache of the default branch nor leaves anything behind.
+    cache-round-trip-save:
+        runs-on: ubuntu-latest
+        steps:
+            - name: Checkout code
+              uses: actions/checkout@v6
+              with:
+                fetch-depth: 0
+            - name: Run toy integration test, saving the cache
+              id: action
+              uses: ./
+              with:
+                garden-system: ubuntu-cloud-24.04
+                spread-subdir: tests/toy
+                cache-key-prefix: image-garden-pkgproxy-test-${{ github.run_id }}-${{ github.run_attempt }}
+                save-cache: always
+            - name: Check that the cache was saved
+              if: ${{ steps.action.outputs.cache-saved != 'true' }}
+              run: |
+                echo "::error::the pkgproxy cache was not saved"
+                exit 1
+    cache-round-trip-restore:
+        needs: cache-round-trip-save
+        runs-on: ubuntu-latest
+        steps:
+            - name: Checkout code
+              uses: actions/checkout@v6
+              with:
+                fetch-depth: 0
+            - name: Run toy integration test, restoring the cache
+              id: action
+              uses: ./
+              with:
+                garden-system: ubuntu-cloud-24.04
+                spread-subdir: tests/toy
+                cache-key-prefix: image-garden-pkgproxy-test-${{ github.run_id }}-${{ github.run_attempt }}
+                save-cache: never
+            - name: Check that the cache was restored
+              if: ${{ !startsWith(steps.action.outputs.cache-restored-key, format('image-garden-pkgproxy-test-{0}-{1}-', github.run_id, github.run_attempt)) }}
+              run: |
+                echo "::error::the pkgproxy cache was not restored, restored key: '${{ steps.action.outputs.cache-restored-key }}'"
+                exit 1
+            - name: Check what the action did
+              run: tests/check-action
+              env:
+                MODE: ${{ steps.action.outputs.pkgproxy-mode }}
+                EXPECT_MODE: snap
+                EXPECT_CACHE_HITS: "true"
+    cache-round-trip-cleanup:
+        needs: [cache-round-trip-save, cache-round-trip-restore]
+        if: always()
+        runs-on: ubuntu-latest
+        permissions:
+            actions: write
+        steps:
+            - name: Delete the caches of the round trip
+              env:
+                GH_TOKEN: ${{ github.token }}
+                PREFIX: image-garden-pkgproxy-test-${{ github.run_id }}-${{ github.run_attempt }}-
+              run: |
+                # Pull requests from forks get a read-only token: GitHub
+                # evicts their caches after 7 days instead.
+                gh cache list --repo "$GITHUB_REPOSITORY" --key "$PREFIX" --json key --jq '.[].key' |
+                  while read -r key; do
+                    gh cache delete --repo "$GITHUB_REPOSITORY" "$key" || echo "::warning::cannot delete cache $key"
+                  done
+    bad-input:
+        runs-on: ubuntu-latest
+        steps:
+            - name: Checkout code
+              uses: actions/checkout@v6
+            - name: Run the action with an invalid save-cache
+              id: action
+              continue-on-error: true
+              uses: ./
+              with:
+                garden-system: ubuntu-cloud-24.04
+                spread-subdir: tests/toy
+                save-cache: bogus
+            - name: Check that the action failed
+              if: ${{ steps.action.outcome != 'failure' }}
+              run: |
+                echo "::error::the action accepted save-cache: bogus"
+                exit 1

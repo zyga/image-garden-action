@@ -74,6 +74,29 @@ Which runs save the pkgproxy cache, see [Caching](#caching): `default-branch`,
 
 Default: `"default-branch"`
 
+### cache-key-prefix
+
+Prefix of the GitHub cache keys of the pkgproxy cache. Change it to start from
+an empty cache, as pkgproxy never deletes anything from its cache on its own.
+
+Default: `"image-garden-pkgproxy-v1"`
+
+## Outputs
+
+### pkgproxy-mode
+
+`snap` when the action installed the pkgproxy snap, `external` when it used a
+pkgproxy that already listened on port 3142.
+
+### cache-restored-key
+
+Key of the GitHub cache that the pkgproxy cache was restored from. Empty on a
+cold start and in `external` mode.
+
+### cache-saved
+
+`true` when the action saved the pkgproxy cache, otherwise `false`.
+
 ## Caching
 
 The action uses [pkgproxy](https://gitlab.com/zygoon/pkgproxy) as its only
