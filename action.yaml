@@ -260,6 +260,12 @@ runs:
                   ;;
                 esac
               done
+              # EXPERIMENT, not for merging: do large snap downloads from the
+              # store's CDN stop failing with HTTP/2 stream resets when
+              # pkgproxy talks HTTP/1.1 to its upstreams?
+              sudo mkdir -p /etc/systemd/system/snap.pkgproxy.pkgproxy.service.d
+              printf '[Service]\nEnvironment=GODEBUG=http2client=0\n' | sudo tee /etc/systemd/system/snap.pkgproxy.pkgproxy.service.d/http1.conf
+              sudo systemctl daemon-reload
               # Fill the cache before pkgproxy uses it. The archive keeps the
               # extended attributes where pkgproxy keeps what it knows of
               # each file, which the tar of actions/cache would drop.
@@ -274,6 +280,8 @@ runs:
               ${{ github.action_path }}/pkgproxy-cache fingerprint images >"$ARCHIVE_DIR"/images.restored
               ${{ github.action_path }}/pkgproxy-cache fingerprint packages >"$ARCHIVE_DIR"/packages.restored
               sudo snap start pkgproxy
+              # EXPERIMENT: show that the daemon got the setting.
+              sudo sh -c 'tr "\0" "\n" </proc/$(systemctl show -p MainPID --value snap.pkgproxy.pkgproxy)/environ' | grep GODEBUG || echo "::warning::pkgproxy has no GODEBUG"
               for _ in $(seq 60); do
                 if [ -n "$(ss -Hltn 'sport = :3142')" ]; then
                   break
