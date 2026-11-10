@@ -226,6 +226,14 @@ runs:
             fi
             if [ "$PKGPROXY_MODE" = snap ]; then
               sudo snap install pkgproxy
+              # Show where the time went: these come from the store directly.
+              snap tasks --last=install || true
+              # pkgproxy goes offline by itself, serving only what it has
+              # cached, while the host has no default route. Some runners
+              # reach the internet without one, such as self-hosted runners
+              # behind a transparent proxy, where every download would then
+              # fail with HTTP 503. A CI job always wants pkgproxy to fetch.
+              sudo snap set pkgproxy offline-mode=never
               # Fill the cache before pkgproxy uses it. The archive keeps the
               # extended attributes where pkgproxy keeps what it knows of
               # each file, which the tar of actions/cache would drop.
