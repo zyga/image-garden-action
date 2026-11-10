@@ -18,6 +18,12 @@ inputs:
     save-cache:
         description: Which runs save the pkgproxy cache, holding snaps, pristine images and guest packages (default-branch, always or never)
         default: default-branch
+    save-package-cache:
+        description: Whether this job saves the packages part of the pkgproxy cache, everything but pristine images; set to "false" in all but one job sharing a cache-scope
+        default: "true"
+    cache-scope:
+        description: Scope of the packages part of the pkgproxy cache, shared by jobs with the same scope (defaults to the garden system); pristine images are always cached per garden system
+        default: ""
     cache-key-prefix:
         description: Prefix of the GitHub cache keys of the pkgproxy cache; change it to start from an empty cache
         default: image-garden-pkgproxy-v1
@@ -49,12 +55,18 @@ outputs:
     pkgproxy-mode:
         description: How pkgproxy is provided, "snap" (installed by this action) or "external" (one that already listened on port 3142)
         value: ${{ steps.pkgproxy.outputs.mode }}
-    cache-restored-key:
-        description: Key of the GitHub cache the pkgproxy cache was restored from, empty on a cold start or in external mode
-        value: ${{ steps.pkgproxy-cache.outputs.cache-matched-key }}
-    cache-saved:
-        description: Whether the pkgproxy cache was saved to the GitHub cache, "true" or "false"
-        value: ${{ steps.pkgproxy-saved.outputs.cache-hit == 'true' && 'true' || 'false' }}
+    images-cache-restored-key:
+        description: Key of the GitHub cache the pristine images were restored from, empty on a cold start or in external mode
+        value: ${{ steps.images-cache.outputs.cache-matched-key }}
+    package-cache-restored-key:
+        description: Key of the GitHub cache everything else in the pkgproxy cache was restored from, empty on a cold start or in external mode
+        value: ${{ steps.package-cache.outputs.cache-matched-key }}
+    images-cache-saved:
+        description: Whether the pristine images were saved to the GitHub cache, "true" or "false"
+        value: ${{ steps.images-saved.outputs.cache-hit == 'true' && 'true' || 'false' }}
+    package-cache-saved:
+        description: Whether everything else in the pkgproxy cache was saved to the GitHub cache, "true" or "false"
+        value: ${{ steps.package-saved.outputs.cache-hit == 'true' && 'true' || 'false' }}
 branding:
     icon: download
     color: orange
@@ -82,11 +94,19 @@ runs:
           shell: bash
           env:
             SAVE_CACHE: ${{ inputs.save-cache }}
+            SAVE_PACKAGE_CACHE: ${{ inputs.save-package-cache }}
           run: |
             case "$SAVE_CACHE" in
             default-branch | always | never) ;;
             *)
               echo "::error::save-cache must be default-branch, always or never, not '$SAVE_CACHE'"
+              exit 1
+              ;;
+            esac
+            case "$SAVE_PACKAGE_CACHE" in
+            true | false) ;;
+            *)
+              echo "::error::save-package-cache must be true or false, not '$SAVE_PACKAGE_CACHE'"
               exit 1
               ;;
             esac
@@ -163,14 +183,26 @@ runs:
             else
               echo "mode=snap" >>"$GITHUB_OUTPUT"
             fi
-        - name: Restore pkgproxy cache
-          id: pkgproxy-cache
+        # The pkgproxy cache is kept as two GitHub caches: the pristine
+        # images, which pkgproxy keeps under files/, always per garden
+        # system, and everything else (snaps, apt, docker, lxd, go), per
+        # cache-scope, which jobs of a matrix can share.
+        - name: Restore pkgproxy cache of pristine images
+          id: images-cache
           if: ${{ steps.pkgproxy.outputs.mode == 'snap' }}
           uses: actions/cache/restore@v5
           with:
-            path: ${{ runner.temp }}/image-garden-pkgproxy/cache.tar
-            key: ${{ inputs.cache-key-prefix }}-${{ runner.arch }}-${{ inputs.garden-system }}-${{ github.run_id }}-${{ github.run_attempt }}
-            restore-keys: ${{ inputs.cache-key-prefix }}-${{ runner.arch }}-${{ inputs.garden-system }}-
+            path: ${{ runner.temp }}/image-garden-pkgproxy/images.tar
+            key: ${{ inputs.cache-key-prefix }}-images-${{ runner.arch }}-${{ inputs.garden-system }}-${{ github.run_id }}-${{ github.run_attempt }}
+            restore-keys: ${{ inputs.cache-key-prefix }}-images-${{ runner.arch }}-${{ inputs.garden-system }}-
+        - name: Restore pkgproxy cache of packages
+          id: package-cache
+          if: ${{ steps.pkgproxy.outputs.mode == 'snap' }}
+          uses: actions/cache/restore@v5
+          with:
+            path: ${{ runner.temp }}/image-garden-pkgproxy/packages.tar
+            key: ${{ inputs.cache-key-prefix }}-packages-${{ runner.arch }}-${{ inputs.cache-scope || inputs.garden-system }}-${{ github.run_id }}-${{ github.run_attempt }}
+            restore-keys: ${{ inputs.cache-key-prefix }}-packages-${{ runner.arch }}-${{ inputs.cache-scope || inputs.garden-system }}-
         - name: Install snapd and pkgproxy snaps
           shell: bash
           env:
@@ -198,12 +230,15 @@ runs:
               # extended attributes where pkgproxy keeps what it knows of
               # each file, which the tar of actions/cache would drop.
               sudo snap stop pkgproxy
-              if [ -f "$ARCHIVE_DIR"/cache.tar ]; then
-                sudo tar --xattrs --xattrs-include='user.*' -xf "$ARCHIVE_DIR"/cache.tar -C /var/snap/pkgproxy/common/cache
-                rm -f "$ARCHIVE_DIR"/cache.tar
-              fi
+              for archive in images packages; do
+                if [ -f "$ARCHIVE_DIR"/"$archive".tar ]; then
+                  sudo tar --xattrs --xattrs-include='user.*' -xf "$ARCHIVE_DIR"/"$archive".tar -C /var/snap/pkgproxy/common/cache
+                  rm -f "$ARCHIVE_DIR"/"$archive".tar
+                fi
+              done
               mkdir -p "$ARCHIVE_DIR"
-              sudo find /var/snap/pkgproxy/common/cache -type f ! -name stats.json -printf '%P %s\n' | sort | sha256sum >"$ARCHIVE_DIR"/fingerprint.restored
+              ${{ github.action_path }}/pkgproxy-cache fingerprint images >"$ARCHIVE_DIR"/images.restored
+              ${{ github.action_path }}/pkgproxy-cache fingerprint packages >"$ARCHIVE_DIR"/packages.restored
               sudo snap start pkgproxy
               for _ in $(seq 60); do
                 if [ -n "$(ss -Hltn 'sport = :3142')" ]; then
@@ -326,18 +361,42 @@ runs:
             name: boot-logs-${{ inputs.spread-artifacts-suffix || inputs.garden-system }}
             path: ${{ inputs.spread-subdir && format('{0}/', inputs.spread-subdir) || '' }}.image-garden/*.log
             if-no-files-found: ignore
+        - name: Show pkgproxy logs
+          if: ${{ failure() && steps.pkgproxy.outputs.mode != '' }}
+          shell: bash
+          env:
+            PKGPROXY_MODE: ${{ steps.pkgproxy.outputs.mode }}
+          run: |
+            # pkgproxy logs every request it serves, with its outcome: the
+            # first place to look when a download in the job failed.
+            echo "::group::pkgproxy logs"
+            if [ "$PKGPROXY_MODE" = snap ]; then
+              sudo snap logs -n 500 pkgproxy || true
+            else
+              sudo journalctl --no-pager -n 500 -u pkgproxy.service || true
+            fi
+            echo "::endgroup::"
+            echo "::group::pkgproxy stats"
+            if [ "$PKGPROXY_MODE" = snap ]; then
+              sudo pkgproxy.pkgproxyctl stats || true
+            else
+              sudo pkgproxyctl stats || true
+            fi
+            echo "::endgroup::"
         # Like setup-pkgproxy: only the default branch saves, by default, as
-        # its cache is the one that every other ref can restore. Failed and
-        # cancelled jobs save too, as whatever pkgproxy cached is valid. A job
-        # that added nothing to the cache saves nothing.
+        # its caches are the ones that every other ref can restore. Failed
+        # and cancelled jobs save too, as whatever pkgproxy cached is valid.
+        # Each of the two caches is saved only when the job added to it.
         - name: Prepare pkgproxy cache for saving
           id: pkgproxy-archive
           if: ${{ always() && steps.pkgproxy.outputs.mode == 'snap' }}
           shell: bash
           env:
             SAVE_CACHE: ${{ inputs.save-cache }}
+            SAVE_PACKAGE_CACHE: ${{ inputs.save-package-cache }}
             DEFAULT_BRANCH_REF: refs/heads/${{ github.event.repository.default_branch }}
-            RESTORED_KEY: ${{ steps.pkgproxy-cache.outputs.cache-matched-key }}
+            IMAGES_RESTORED_KEY: ${{ steps.images-cache.outputs.cache-matched-key }}
+            PACKAGE_RESTORED_KEY: ${{ steps.package-cache.outputs.cache-matched-key }}
             ARCHIVE_DIR: ${{ runner.temp }}/image-garden-pkgproxy
           run: |
             if ! snap list pkgproxy >/dev/null 2>&1; then
@@ -347,7 +406,8 @@ runs:
             {
               echo "### pkgproxy cache"
               echo
-              echo "Restored from: \`${RESTORED_KEY:-nothing, cold start}\`"
+              echo "- Images restored from: \`${IMAGES_RESTORED_KEY:-nothing, cold start}\`"
+              echo "- Packages restored from: \`${PACKAGE_RESTORED_KEY:-nothing, cold start}\`"
               echo
               echo '```'
               sudo pkgproxy.pkgproxyctl stats | head -n 40 || true
@@ -364,42 +424,62 @@ runs:
               ;;
             *) reason="save-cache is $SAVE_CACHE" ;;
             esac
-            if [ -z "$reason" ]; then
-              # Stop pkgproxy for a consistent archive, but start it again
-              # whatever happens: snapd and GARDEN_DL_PKGPROXY still point
-              # at it for any later step of the job.
-              trap 'sudo snap start pkgproxy' EXIT
-              sudo snap stop pkgproxy
-              sudo find /var/snap/pkgproxy/common/cache -type f ! -name stats.json -printf '%P %s\n' | sort | sha256sum >"$ARCHIVE_DIR"/fingerprint.final
-              if cmp -s "$ARCHIVE_DIR"/fingerprint.restored "$ARCHIVE_DIR"/fingerprint.final; then
-                reason="nothing was added to it"
-              fi
-            fi
             if [ -n "$reason" ]; then
               echo "Not saving the pkgproxy cache: $reason" | tee -a "$GITHUB_STEP_SUMMARY"
               exit 0
             fi
-            sudo tar --xattrs --xattrs-include='user.*' -cf "$ARCHIVE_DIR"/cache.tar -C /var/snap/pkgproxy/common/cache .
-            echo "Saving the pkgproxy cache ($(du -h "$ARCHIVE_DIR"/cache.tar | cut -f 1))" | tee -a "$GITHUB_STEP_SUMMARY"
-            echo "save=true" >>"$GITHUB_OUTPUT"
-        - name: Save pkgproxy cache
-          id: pkgproxy-save
-          if: ${{ always() && steps.pkgproxy-archive.outputs.save == 'true' }}
+            # Stop pkgproxy for consistent archives, but start it again
+            # whatever happens: snapd and GARDEN_DL_PKGPROXY still point at it
+            # for any later step of the job.
+            trap 'sudo snap start pkgproxy' EXIT
+            sudo snap stop pkgproxy
+            for archive in images packages; do
+              if [ "$archive" = packages ] && [ "$SAVE_PACKAGE_CACHE" != true ]; then
+                echo "Not saving the pkgproxy cache of packages: save-package-cache is $SAVE_PACKAGE_CACHE" | tee -a "$GITHUB_STEP_SUMMARY"
+                continue
+              fi
+              ${{ github.action_path }}/pkgproxy-cache fingerprint "$archive" >"$ARCHIVE_DIR"/"$archive".final
+              if cmp -s "$ARCHIVE_DIR"/"$archive".restored "$ARCHIVE_DIR"/"$archive".final; then
+                echo "Not saving the pkgproxy cache of $archive: nothing was added to it" | tee -a "$GITHUB_STEP_SUMMARY"
+                continue
+              fi
+              ${{ github.action_path }}/pkgproxy-cache archive "$archive" "$ARCHIVE_DIR"/"$archive".tar
+              echo "Saving the pkgproxy cache of $archive ($(du -h "$ARCHIVE_DIR"/"$archive".tar | cut -f 1))" | tee -a "$GITHUB_STEP_SUMMARY"
+              echo "save-$archive=true" >>"$GITHUB_OUTPUT"
+            done
+        - name: Save pkgproxy cache of pristine images
+          id: images-save
+          if: ${{ always() && steps.pkgproxy-archive.outputs.save-images == 'true' }}
           uses: actions/cache/save@v5
           with:
-            path: ${{ runner.temp }}/image-garden-pkgproxy/cache.tar
-            key: ${{ inputs.cache-key-prefix }}-${{ runner.arch }}-${{ inputs.garden-system }}-${{ github.run_id }}-${{ github.run_attempt }}
-        # actions/cache/save only warns when it cannot save, so look the key
-        # up to know whether the cache exists.
-        - name: Check that the pkgproxy cache was saved
-          id: pkgproxy-saved
-          if: ${{ always() && steps.pkgproxy-save.outcome == 'success' }}
+            path: ${{ runner.temp }}/image-garden-pkgproxy/images.tar
+            key: ${{ inputs.cache-key-prefix }}-images-${{ runner.arch }}-${{ inputs.garden-system }}-${{ github.run_id }}-${{ github.run_attempt }}
+        - name: Save pkgproxy cache of packages
+          id: package-save
+          if: ${{ always() && steps.pkgproxy-archive.outputs.save-packages == 'true' }}
+          uses: actions/cache/save@v5
+          with:
+            path: ${{ runner.temp }}/image-garden-pkgproxy/packages.tar
+            key: ${{ inputs.cache-key-prefix }}-packages-${{ runner.arch }}-${{ inputs.cache-scope || inputs.garden-system }}-${{ github.run_id }}-${{ github.run_attempt }}
+        # actions/cache/save only warns when it cannot save, so look the keys
+        # up to know whether the caches exist.
+        - name: Check that the pkgproxy cache of pristine images was saved
+          id: images-saved
+          if: ${{ always() && steps.images-save.outcome == 'success' }}
           uses: actions/cache/restore@v5
           with:
-            path: ${{ runner.temp }}/image-garden-pkgproxy/cache.tar
-            key: ${{ inputs.cache-key-prefix }}-${{ runner.arch }}-${{ inputs.garden-system }}-${{ github.run_id }}-${{ github.run_attempt }}
+            path: ${{ runner.temp }}/image-garden-pkgproxy/images.tar
+            key: ${{ inputs.cache-key-prefix }}-images-${{ runner.arch }}-${{ inputs.garden-system }}-${{ github.run_id }}-${{ github.run_attempt }}
+            lookup-only: true
+        - name: Check that the pkgproxy cache of packages was saved
+          id: package-saved
+          if: ${{ always() && steps.package-save.outcome == 'success' }}
+          uses: actions/cache/restore@v5
+          with:
+            path: ${{ runner.temp }}/image-garden-pkgproxy/packages.tar
+            key: ${{ inputs.cache-key-prefix }}-packages-${{ runner.arch }}-${{ inputs.cache-scope || inputs.garden-system }}-${{ github.run_id }}-${{ github.run_attempt }}
             lookup-only: true
         - name: Warn when the pkgproxy cache was not saved
-          if: ${{ always() && steps.pkgproxy-save.outcome == 'success' && steps.pkgproxy-saved.outputs.cache-hit != 'true' }}
+          if: ${{ always() && ((steps.images-save.outcome == 'success' && steps.images-saved.outputs.cache-hit != 'true') || (steps.package-save.outcome == 'success' && steps.package-saved.outputs.cache-hit != 'true')) }}
           shell: bash
-          run: echo "::warning::The pkgproxy cache could not be saved, see the Save pkgproxy cache step"
+          run: echo "::warning::The pkgproxy cache could not be saved, see the Save pkgproxy cache steps"

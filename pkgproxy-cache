@@ -1,0 +1,73 @@
+#!/bin/sh
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Canonical Ltd.
+#
+# pkgproxy-cache - split the cache of the pkgproxy snap in two parts
+#
+# The action keeps the cache of the pkgproxy snap as two GitHub caches:
+#
+#   images    the pristine images that image-garden downloads, which pkgproxy
+#             keeps by checksum under files/, cached per garden system;
+#   packages  everything else: snaps, apt, docker, lxd and go, which jobs of
+#             a matrix can share.
+#
+# Usage:
+#   pkgproxy-cache fingerprint images|packages
+#       Print a fingerprint of the paths and sizes of the files in that part,
+#       to tell whether a job added to it. pkgproxy's statistics are ignored.
+#   pkgproxy-cache archive images|packages ARCHIVE
+#       Write that part to ARCHIVE, a tar file that keeps the extended
+#       attributes in which pkgproxy keeps what it knows of each file. The tar
+#       of actions/cache drops them, and pkgproxy downloads again a file that
+#       lost them.
+#
+# Both read the cache as root, with sudo. pkgproxy should be stopped.
+
+set -eu
+
+CACHE_DIR=/var/snap/pkgproxy/common/cache
+
+usage() {
+	echo "Usage: pkgproxy-cache fingerprint images|packages" >&2
+	echo "       pkgproxy-cache archive images|packages ARCHIVE" >&2
+	exit 64 # EX_USAGE
+}
+
+[ $# -ge 2 ] || usage
+command="$1"
+part="$2"
+
+case "$part" in
+images | packages) ;;
+*) usage ;;
+esac
+
+case "$command" in
+fingerprint)
+	[ $# -eq 2 ] || usage
+	if [ "$part" = images ]; then
+		# There is no files/ until pkgproxy fetched an image.
+		if sudo test -d "$CACHE_DIR"/files; then
+			sudo find "$CACHE_DIR"/files -type f -printf '%P %s\n'
+		fi
+	else
+		sudo find "$CACHE_DIR" -path "$CACHE_DIR"/files -prune -o -type f ! -name stats.json -printf '%P %s\n'
+	fi | sort | sha256sum
+	;;
+archive)
+	[ $# -eq 3 ] || usage
+	archive="$3"
+	if [ "$part" = images ]; then
+		if sudo test -d "$CACHE_DIR"/files; then
+			sudo tar --xattrs --xattrs-include='user.*' -cf "$archive" -C "$CACHE_DIR" ./files
+		else
+			sudo tar -cf "$archive" -T /dev/null
+		fi
+	else
+		sudo tar --xattrs --xattrs-include='user.*' -cf "$archive" -C "$CACHE_DIR" --exclude=./files .
+	fi
+	;;
+*)
+	usage
+	;;
+esac

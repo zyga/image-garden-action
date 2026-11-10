@@ -71,13 +71,15 @@ jobs:
                 MODE: ${{ steps.action.outputs.pkgproxy-mode }}
                 EXPECT_MODE: external
             - name: Check that the action left the cache to setup-pkgproxy
-              if: ${{ steps.action.outputs.cache-saved != 'false' || steps.action.outputs.cache-restored-key != '' }}
+              if: ${{ steps.action.outputs.images-cache-saved != 'false' || steps.action.outputs.package-cache-saved != 'false' || steps.action.outputs.images-cache-restored-key != '' || steps.action.outputs.package-cache-restored-key != '' }}
               run: |
                 echo "::error::the action used the GitHub cache next to setup-pkgproxy"
                 exit 1
-    # The pkgproxy cache, saved by one job and restored by the next. It uses
-    # cache keys of its own, deleted at the end, so that it neither uses
-    # the cache of the default branch nor leaves anything behind.
+    # The pkgproxy cache, saved by one job and restored by the next ones. It
+    # uses cache keys of its own, deleted at the end, so that it neither uses
+    # the cache of the default branch nor leaves anything behind. All three
+    # jobs share the packages cache (cache-scope: round-trip), as a matrix
+    # would; the images cache is per garden system.
     cache-round-trip-save:
         runs-on: ubuntu-latest
         steps:
@@ -92,12 +94,13 @@ jobs:
                 garden-system: ubuntu-cloud-24.04
                 spread-subdir: tests/toy
                 cache-key-prefix: image-garden-pkgproxy-test-${{ github.run_id }}-${{ github.run_attempt }}
+                cache-scope: round-trip
                 save-cache: always
                 spread-artifacts-suffix: ${{ github.job }}
-            - name: Check that the cache was saved
-              if: ${{ steps.action.outputs.cache-saved != 'true' }}
+            - name: Check that both caches were saved
+              if: ${{ steps.action.outputs.images-cache-saved != 'true' || steps.action.outputs.package-cache-saved != 'true' }}
               run: |
-                echo "::error::the pkgproxy cache was not saved"
+                echo "::error::the pkgproxy caches were not both saved: images ${{ steps.action.outputs.images-cache-saved }}, packages ${{ steps.action.outputs.package-cache-saved }}"
                 exit 1
     cache-round-trip-restore:
         needs: cache-round-trip-save
@@ -114,12 +117,13 @@ jobs:
                 garden-system: ubuntu-cloud-24.04
                 spread-subdir: tests/toy
                 cache-key-prefix: image-garden-pkgproxy-test-${{ github.run_id }}-${{ github.run_attempt }}
+                cache-scope: round-trip
                 save-cache: never
                 spread-artifacts-suffix: ${{ github.job }}
-            - name: Check that the cache was restored
-              if: ${{ !startsWith(steps.action.outputs.cache-restored-key, format('image-garden-pkgproxy-test-{0}-{1}-', github.run_id, github.run_attempt)) }}
+            - name: Check that both caches were restored
+              if: ${{ !startsWith(steps.action.outputs.images-cache-restored-key, format('image-garden-pkgproxy-test-{0}-{1}-images-{2}-ubuntu-cloud-24.04-', github.run_id, github.run_attempt, runner.arch)) || !startsWith(steps.action.outputs.package-cache-restored-key, format('image-garden-pkgproxy-test-{0}-{1}-packages-{2}-round-trip-', github.run_id, github.run_attempt, runner.arch)) }}
               run: |
-                echo "::error::the pkgproxy cache was not restored, restored key: '${{ steps.action.outputs.cache-restored-key }}'"
+                echo "::error::the pkgproxy caches were not both restored: images '${{ steps.action.outputs.images-cache-restored-key }}', packages '${{ steps.action.outputs.package-cache-restored-key }}'"
                 exit 1
             - name: Check what the action did
               run: tests/check-action
@@ -127,8 +131,39 @@ jobs:
                 MODE: ${{ steps.action.outputs.pkgproxy-mode }}
                 EXPECT_MODE: snap
                 EXPECT_CACHE_HITS: "true"
+    # Another system of the same matrix: it shares the packages cache, which
+    # it must not save, and has an images cache of its own, which it saves.
+    cache-round-trip-shared:
+        needs: cache-round-trip-save
+        runs-on: ubuntu-latest
+        steps:
+            - name: Checkout code
+              uses: actions/checkout@v6
+              with:
+                fetch-depth: 0
+            - name: Run toy integration test on another system, sharing packages
+              id: action
+              uses: ./
+              with:
+                garden-system: debian-cloud-13
+                spread-subdir: tests/toy
+                cache-key-prefix: image-garden-pkgproxy-test-${{ github.run_id }}-${{ github.run_attempt }}
+                cache-scope: round-trip
+                save-cache: always
+                save-package-cache: "false"
+                spread-artifacts-suffix: ${{ github.job }}
+            - name: Check that only the packages were restored and only the image saved
+              if: ${{ steps.action.outputs.images-cache-restored-key != '' || !startsWith(steps.action.outputs.package-cache-restored-key, format('image-garden-pkgproxy-test-{0}-{1}-packages-{2}-round-trip-', github.run_id, github.run_attempt, runner.arch)) || steps.action.outputs.images-cache-saved != 'true' || steps.action.outputs.package-cache-saved != 'false' }}
+              run: |
+                echo "::error::unexpected caching: images restored '${{ steps.action.outputs.images-cache-restored-key }}', saved ${{ steps.action.outputs.images-cache-saved }}; packages restored '${{ steps.action.outputs.package-cache-restored-key }}', saved ${{ steps.action.outputs.package-cache-saved }}"
+                exit 1
+            - name: Check what the action did
+              run: tests/check-action
+              env:
+                MODE: ${{ steps.action.outputs.pkgproxy-mode }}
+                EXPECT_MODE: snap
     cache-round-trip-cleanup:
-        needs: [cache-round-trip-save, cache-round-trip-restore]
+        needs: [cache-round-trip-save, cache-round-trip-restore, cache-round-trip-shared]
         if: always()
         runs-on: ubuntu-latest
         permissions:

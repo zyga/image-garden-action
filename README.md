@@ -76,6 +76,25 @@ Which runs save the pkgproxy cache, see [Caching](#caching): `default-branch`,
 
 Default: `"default-branch"`
 
+### cache-scope
+
+Scope of the packages part of the pkgproxy cache: everything but the pristine
+images, such as snaps and the apt, docker and LXD downloads of the virtual
+machines. Jobs with the same scope share it. Give all the jobs of a matrix the
+same scope, so that they share one copy of the packages instead of one per
+system. See [Caching](#caching).
+
+Default: `""`, the garden system
+
+### save-package-cache
+
+Whether this job saves the packages part of the pkgproxy cache. In a matrix
+that shares a `cache-scope`, set it to `"false"` in all jobs but one, which
+then keeps the shared cache. The pristine images of each job are saved either
+way, as `save-cache` allows.
+
+Default: `"true"`
+
 ### cache-key-prefix
 
 Prefix of the GitHub cache keys of the pkgproxy cache. Change it to start from
@@ -90,14 +109,15 @@ Default: `"image-garden-pkgproxy-v1"`
 `snap` when the action installed the pkgproxy snap, `external` when it used a
 pkgproxy that already listened on port 3142.
 
-### cache-restored-key
+### images-cache-restored-key, package-cache-restored-key
 
-Key of the GitHub cache that the pkgproxy cache was restored from. Empty on a
-cold start and in `external` mode.
+Keys of the GitHub caches that the pristine images and the packages were
+restored from. Empty on a cold start and in `external` mode.
 
-### cache-saved
+### images-cache-saved, package-cache-saved
 
-`true` when the action saved the pkgproxy cache, otherwise `false`.
+`true` when the action saved the pristine images, or the packages, to the
+GitHub cache, otherwise `false`.
 
 ## Caching
 
@@ -110,7 +130,18 @@ machines.
 By default the action installs the pkgproxy snap and connects image-garden to
 it (`snap set image-garden pkgproxy=snap`). The pkgproxy cache is restored from
 the GitHub cache at the start of the job and, if the job added to it, saved at
-the end, as an archive that keeps the extended attributes pkgproxy relies on.
+the end, as archives that keep the extended attributes pkgproxy relies on.
+
+The pkgproxy cache is kept as two GitHub caches:
+
+- **images**: the pristine images that image-garden downloads, always one
+  cache per `garden-system`;
+- **packages**: everything else, such as the image-garden snap and the snaps,
+  apt, docker and LXD downloads of the virtual machines, one cache per
+  `cache-scope`, which is the garden system unless set.
+
+Images prepared from `.image-garden.mk` are not part of either: see
+`cache-prepared-images`.
 
 As in [setup-pkgproxy](https://github.com/zyga/setup-pkgproxy), only runs on
 the default branch save the cache (`save-cache: default-branch`). Pull
@@ -120,9 +151,38 @@ the default branch's cache. Make sure your workflow also runs on pushes to the
 default branch, or nothing is ever saved. Failed and cancelled jobs save too:
 whatever pkgproxy cached is valid.
 
-Each `garden-system` gets a cache of its own, as each downloads a different
-image. When several jobs use the same system, let one of them save and give
-the others `save-cache: never`.
+Each part is saved only when the job added to it. When several jobs use the
+same system, let one of them save and give the others `save-cache: never`.
+
+### Caching a matrix
+
+The systems of a matrix download a different image each, but mostly the same
+snaps and packages. Give every job the same `cache-scope`, and let one job,
+such as a canary that runs first, save the shared packages:
+
+```yaml
+jobs:
+    canary:
+        steps:
+            - uses: zyga/image-garden-action@v0
+              with:
+                garden-system: ubuntu-cloud-24.04
+                cache-scope: shared
+    test:
+        needs: canary
+        strategy:
+            matrix:
+                garden-system: [debian-cloud-13, fedora-cloud-44]
+        steps:
+            - uses: zyga/image-garden-action@v0
+              with:
+                garden-system: ${{ matrix.garden-system }}
+                cache-scope: shared
+                save-package-cache: "false"
+```
+
+Every job then restores the shared packages and its own images, and saves its
+own images when they change.
 
 ### Using setup-pkgproxy as well
 

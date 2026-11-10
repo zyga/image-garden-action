@@ -58,6 +58,7 @@ The action allows developers to test their applications in real deployment envir
 ### Key Files
 - **`action.yaml`**: Main action definition with inputs, outputs, and steps
 - **`README.md`**: Comprehensive documentation for users
+- **`pkgproxy-cache`**: Shell script that fingerprints and archives the two parts of the pkgproxy cache
 - **`tests/check-action`**: Shell script that checks, in CI, what the action did
 - **`Makefile`**: Defines linting, formatting, and checking tasks
 - **`.gitignore`**: Excludes temporary files and build artifacts
@@ -130,9 +131,10 @@ make check             # Run all checks
 - pkgproxy is the single cache for host snaps and components, pristine images
   (`GARDEN_DL_PKGPROXY`) and guest apt/snap/go traffic
 - Without an existing pkgproxy on port 3142 the action installs the pkgproxy
-  snap and saves its cache, as a `tar --xattrs` archive, keyed per arch and
-  garden system; with one (e.g. from setup-pkgproxy) it reuses it and leaves
-  caching to its owner
+  snap and saves its cache as two `tar --xattrs` archives (see
+  `pkgproxy-cache`): pristine images per garden system, and everything else
+  per `cache-scope`, which a matrix can share; with one (e.g. from
+  setup-pkgproxy) it reuses it and leaves caching to its owner
 - Like setup-pkgproxy, only the default branch saves by default (`save-cache`)
 - Prepared images caching is optional (scales poorly with many systems)
 - Always exclude log files from caches
