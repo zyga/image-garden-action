@@ -232,8 +232,10 @@ runs:
               # cached, while the host has no default route. Some runners
               # reach the internet without one, such as self-hosted runners
               # behind a transparent proxy, where every download would then
-              # fail with HTTP 503. A CI job always wants pkgproxy to fetch.
-              sudo snap set pkgproxy offline-mode=never
+              # fail with HTTP 503. A CI job always wants pkgproxy to fetch,
+              # so turn that off. offline-mode=never would not do: it is the
+              # mode set by hand, which going offline by itself overrides.
+              sudo snap set pkgproxy auto-offline=off
               # Fill the cache before pkgproxy uses it. The archive keeps the
               # extended attributes where pkgproxy keeps what it knows of
               # each file, which the tar of actions/cache would drop.
