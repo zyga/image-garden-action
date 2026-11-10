@@ -12,6 +12,9 @@ inputs:
     image-garden-channel:
         description: Snap store channel for the image-garden snap.
         default: latest/stable
+    pkgproxy-channel:
+        description: Snap store channel for the pkgproxy snap, when the action installs it
+        default: latest/stable
     cache-prepared-images:
         description: Use GitHub cache to store project-specific images (cache-intensive, scales poorly with number of systems)
         default: "false"
@@ -208,6 +211,7 @@ runs:
           env:
             PKGPROXY_MODE: ${{ steps.pkgproxy.outputs.mode }}
             SNAPD_CHANNEL: ${{ inputs.snapd-channel }}
+            PKGPROXY_CHANNEL: ${{ inputs.pkgproxy-channel }}
             ARCHIVE_DIR: ${{ runner.temp }}/image-garden-pkgproxy
           run: |
             echo "::group::Install snapd and pkgproxy snaps"
@@ -225,7 +229,7 @@ runs:
               sudo snap install --channel="$SNAPD_CHANNEL" snapd
             fi
             if [ "$PKGPROXY_MODE" = snap ]; then
-              sudo snap install pkgproxy
+              sudo snap install --channel="$PKGPROXY_CHANNEL" pkgproxy
               # Show where the time went: these come from the store directly.
               snap tasks --last=install || true
               # pkgproxy goes offline by itself, serving only what it has

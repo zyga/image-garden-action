@@ -61,6 +61,13 @@ The action will fail with an error if this constraint is violated.
 
 Default: `"false"`
 
+### pkgproxy-channel
+
+Snap store channel of the pkgproxy snap, when the action installs it, such as
+`latest/edge` to try a fix before it is released.
+
+Default: `"latest/stable"`
+
 ### cache-prepared-images
 
 Optional boolean flag to keep the project-specific virtual machine images,
