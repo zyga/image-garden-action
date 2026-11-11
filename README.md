@@ -150,6 +150,18 @@ The pkgproxy cache is kept as two GitHub caches:
 Images prepared from `.image-garden.mk` are not part of either: see
 `cache-prepared-images`.
 
+### Behind a proxy
+
+pkgproxy fetches through the proxy that snapd uses (`snap get system
+proxy.http`, `proxy.https` and `proxy.no-proxy`), given to it as its own
+`http-proxy`, `https-proxy` and `no-proxy` options. On runners with
+[aproxy](https://github.com/canonical/aproxy), such as Canonical's self-hosted
+runners, the egress proxy that aproxy forwards to (`snap get aproxy proxy`)
+fills in either scheme that snapd named no proxy for, so pkgproxy asks the
+egress proxy itself rather than going through aproxy. pkgproxy reads these
+options from version 0.13, or `latest/edge` before then: see
+`pkgproxy-channel`.
+
 As in [setup-pkgproxy](https://github.com/zyga/setup-pkgproxy), only runs on
 the default branch save the cache (`save-cache: default-branch`). Pull
 requests and other branches restore the default branch's cache but never save
