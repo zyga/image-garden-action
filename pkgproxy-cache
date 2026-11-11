@@ -20,8 +20,17 @@
 #       attributes in which pkgproxy keeps what it knows of each file. The tar
 #       of actions/cache drops them, and pkgproxy downloads again a file that
 #       lost them.
+#   pkgproxy-cache usage
+#       Print, for each kind of download in the cache (apt, snap, files and
+#       so on), its name, number of files and bytes, separated by tabs.
+#   pkgproxy-cache table FILE
+#       Print an output of usage, saved to FILE, as a table.
+#   pkgproxy-cache compare [--markdown] BEFORE AFTER
+#       Print a table of two outputs of usage, saved to the files BEFORE and
+#       AFTER, with what changed in between. With --markdown, a Markdown table.
 #
-# Both read the cache as root, with sudo. pkgproxy should be stopped.
+# fingerprint and archive read the cache as root, with sudo, and pkgproxy
+# should be stopped. So does usage, which pkgproxy may run during.
 
 set -eu
 
@@ -30,16 +39,24 @@ CACHE_DIR=/var/snap/pkgproxy/common/cache
 usage() {
 	echo "Usage: pkgproxy-cache fingerprint images|packages" >&2
 	echo "       pkgproxy-cache archive images|packages ARCHIVE" >&2
+	echo "       pkgproxy-cache usage" >&2
+	echo "       pkgproxy-cache table FILE" >&2
+	echo "       pkgproxy-cache compare [--markdown] BEFORE AFTER" >&2
 	exit 64 # EX_USAGE
 }
 
-[ $# -ge 2 ] || usage
+[ $# -ge 1 ] || usage
 command="$1"
-part="$2"
 
-case "$part" in
-images | packages) ;;
-*) usage ;;
+case "$command" in
+fingerprint | archive)
+	[ $# -ge 2 ] || usage
+	part="$2"
+	case "$part" in
+	images | packages) ;;
+	*) usage ;;
+	esac
+	;;
 esac
 
 case "$command" in
@@ -66,6 +83,82 @@ archive)
 	else
 		sudo tar --xattrs --xattrs-include='user.*' -cf "$archive" -C "$CACHE_DIR" --exclude=./files .
 	fi
+	;;
+usage)
+	[ $# -eq 1 ] || usage
+	# Every directory at the top of the cache holds one kind of download.
+	# A file there, such as stats.json, is pkgproxy's own.
+	if sudo test -d "$CACHE_DIR"; then
+		sudo find "$CACHE_DIR" -mindepth 1 -type f -printf '%P\t%s\n'
+	fi | awk -F '\t' '
+		index($1, "/") { kind = substr($1, 1, index($1, "/") - 1); files[kind]++; bytes[kind] += $2 }
+		END { for (kind in files) printf "%s\t%d\t%d\n", kind, files[kind], bytes[kind] }
+	' | sort
+	;;
+table)
+	[ $# -eq 2 ] || usage
+	awk -F '\t' '
+		function human(n,   u, i) {
+			split("B KiB MiB GiB TiB", u, " ")
+			for (i = 1; n >= 1024 && i < 5; i++) n /= 1024
+			return i == 1 ? sprintf("%d B", n) : sprintf("%.1f %s", n, u[i])
+		}
+		BEGIN { printf "%-8s %8s %11s\n", "kind", "files", "size" }
+		{ printf "%-8s %8d %11s\n", $1, $2, human($3); files += $2; bytes += $3 }
+		END { printf "%-8s %8d %11s\n", "total", files, human(bytes) }
+	' "$2"
+	;;
+compare)
+	markdown=false
+	if [ "${2:-}" = --markdown ]; then
+		markdown=true
+		shift
+	fi
+	[ $# -eq 3 ] || usage
+	# A missing file is an empty cache, as before a cold start.
+	before="$2"
+	after="$3"
+	[ -f "$before" ] || before=/dev/null
+	[ -f "$after" ] || after=/dev/null
+	awk -F '\t' -v markdown="$markdown" '
+		function human(n,   u, i) {
+			split("B KiB MiB GiB TiB", u, " ")
+			for (i = 1; n >= 1024 && i < 5; i++) n /= 1024
+			return i == 1 ? sprintf("%d B", n) : sprintf("%.1f %s", n, u[i])
+		}
+		function delta(n, unit) {
+			if (n == 0) return "-"
+			return (n > 0 ? "+" : "-") (unit == "bytes" ? human(n < 0 ? -n : n) : (n < 0 ? -n : n))
+		}
+		function row(k, bf, bb, af, ab) {
+			if (markdown == "true")
+				printf "| %s | %s | %s | %s | %s | %s | %s |\n", k, bf, human(bb), af, human(ab), delta(af - bf, "files"), delta(ab - bb, "bytes")
+			else
+				printf "%-8s %8s %11s %8s %11s %8s %11s\n", k, bf, human(bb), af, human(ab), delta(af - bf, "files"), delta(ab - bb, "bytes")
+		}
+		# Not FNR == NR, which an empty BEFORE, as on a cold start, breaks.
+		FILENAME == ARGV[1] { kinds[$1]; bf[$1] = $2; bb[$1] = $3; next }
+		{ kinds[$1]; af[$1] = $2; ab[$1] = $3 }
+		END {
+			if (markdown == "true") {
+				print "| Kind | Files before | Size before | Files after | Size after | Files added | Size added |"
+				print "| --- | ---: | ---: | ---: | ---: | ---: | ---: |"
+			} else {
+				printf "%-8s %20s %20s %20s\n", "", "------ before ------", "------ after -------", "------ added -------"
+				printf "%-8s %8s %11s %8s %11s %8s %11s\n", "kind", "files", "size", "files", "size", "files", "size"
+			}
+			n = 0
+			for (k in kinds) names[++n] = k
+			# Sort the names, by insertion, as awk has no sort of its own.
+			for (i = 2; i <= n; i++) for (j = i; j > 1 && names[j - 1] > names[j]; j--) { t = names[j]; names[j] = names[j - 1]; names[j - 1] = t }
+			for (i = 1; i <= n; i++) {
+				k = names[i]
+				row(k, bf[k] + 0, bb[k] + 0, af[k] + 0, ab[k] + 0)
+				tbf += bf[k]; tbb += bb[k]; taf += af[k]; tab += ab[k]
+			}
+			row(markdown == "true" ? "**total**" : "total", tbf + 0, tbb + 0, taf + 0, tab + 0)
+		}
+	' "$before" "$after"
 	;;
 *)
 	usage

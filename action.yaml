@@ -313,6 +313,9 @@ runs:
               mkdir -p "$ARCHIVE_DIR"
               ${{ github.action_path }}/pkgproxy-cache fingerprint images >"$ARCHIVE_DIR"/images.restored
               ${{ github.action_path }}/pkgproxy-cache fingerprint packages >"$ARCHIVE_DIR"/packages.restored
+              # What the cache held before the job, shown next to what it
+              # holds at the end of it.
+              ${{ github.action_path }}/pkgproxy-cache usage >"$ARCHIVE_DIR"/usage.before
               # Forget the starts of the install, should they count against
               # systemd's start limit.
               sudo systemctl reset-failed snap.pkgproxy.pkgproxy.service || true
@@ -340,6 +343,26 @@ runs:
               sudo snap unset system proxy.http
             fi
             echo "::endgroup::"
+        - name: Show the pkgproxy cache before the tests
+          if: ${{ steps.pkgproxy.outputs.mode != '' }}
+          shell: bash
+          env:
+            PKGPROXY_MODE: ${{ steps.pkgproxy.outputs.mode }}
+            ARCHIVE_DIR: ${{ runner.temp }}/image-garden-pkgproxy
+          run: |
+            . ${{ github.action_path }}/log.sh
+            mkdir -p "$ARCHIVE_DIR"
+            # The statistics at the end show only what changed since now.
+            date -u +%Y-%m-%dT%H:%M:%SZ >"$ARCHIVE_DIR"/started
+            section "pkgproxy cache before the tests"
+            if [ -f "$ARCHIVE_DIR"/usage.before ]; then
+              ${{ github.action_path }}/pkgproxy-cache table "$ARCHIVE_DIR"/usage.before
+            fi
+            pkgproxyctl=pkgproxyctl
+            [ "$PKGPROXY_MODE" != snap ] || pkgproxyctl=pkgproxy.pkgproxyctl
+            group "pkgproxy statistics, from every job that added to this cache"
+            sudo "$pkgproxyctl" stats || true
+            endgroup
         - name: Install image-garden snap
           shell: bash
           env:
@@ -398,14 +421,18 @@ runs:
           shell: bash
           working-directory: ${{ inputs.spread-subdir }}
           run: |
-            echo "::group::Make the virtual machine image"
-            image-garden make \
+            . ${{ github.action_path }}/log.sh
+            section "Virtual machine image of ${{ inputs.garden-system }}"
+            # Making the image boots it for the first time, with the whole
+            # console of that boot in the output: fold it, and show its end
+            # only when it fails.
+            folded "Make the image of ${{ inputs.garden-system }}, booting it for the first time" \
+              image-garden make \
               ${{ inputs.garden-system }}."$(uname -m)".qcow2 \
               ${{ inputs.garden-system }}."$(uname -m)".run \
               ${{ inputs.garden-system }}."$(uname -m)".user-data \
               ${{ inputs.garden-system }}."$(uname -m)".meta-data \
               ${{ inputs.garden-system }}."$(uname -m)".seed.iso
-            echo "::endgroup::"
         - name: Rebase the virtual machine image
           shell: bash
           # TODO: only run this if there was a cache hit.
@@ -417,14 +444,23 @@ runs:
           shell: bash
           working-directory: ${{ inputs.spread-subdir }}
           run: |
+            . ${{ github.action_path }}/log.sh
+            section "spread on ${{ inputs.garden-system }}"
+            # spread.log keeps the output as spread wrote it; the job log
+            # gets it folded and coloured by spread-output.
             set +e
             spread \
               ${{ inputs.spread-artifacts && format('-artifacts {0}', inputs.spread-artifacts) || '' }} \
               -v ${{ fromJSON(inputs.spread-live) && '-live ' || '' }}${{ inputs.spread-backend }}:${{ inputs.garden-system }}:${{ inputs.spread-tasks }} \
-              2>&1 | tee spread.log
+              2>&1 | tee spread.log | ${{ github.action_path }}/spread-output
             SPREAD_EXIT_CODE=${PIPESTATUS[0]}
             set -e
-            exit $SPREAD_EXIT_CODE
+            if [ "$SPREAD_EXIT_CODE" -eq 0 ]; then
+              ok "spread passed"
+            else
+              fail "spread failed with exit status $SPREAD_EXIT_CODE; spread.log, among the job's artifacts, has its whole output"
+            fi
+            exit "$SPREAD_EXIT_CODE"
         - name: Upload spread log
           if: always()
           uses: actions/upload-artifact@v7
@@ -465,13 +501,31 @@ runs:
               sudo journalctl --no-pager -n 500 -u pkgproxy.service || true
             fi
             echo "::endgroup::"
-            echo "::group::pkgproxy stats"
+        - name: Show the pkgproxy cache after the tests
+          if: ${{ always() && steps.pkgproxy.outputs.mode != '' }}
+          shell: bash
+          env:
+            PKGPROXY_MODE: ${{ steps.pkgproxy.outputs.mode }}
+            ARCHIVE_DIR: ${{ runner.temp }}/image-garden-pkgproxy
+          run: |
+            . ${{ github.action_path }}/log.sh
+            section "pkgproxy cache after the tests"
+            mkdir -p "$ARCHIVE_DIR"
             if [ "$PKGPROXY_MODE" = snap ]; then
-              sudo pkgproxy.pkgproxyctl stats || true
-            else
-              sudo pkgproxyctl stats || true
+              # usage.before is missing when the job failed before pkgproxy
+              # was set up, and compare takes it as an empty cache.
+              ${{ github.action_path }}/pkgproxy-cache usage >"$ARCHIVE_DIR"/usage.after
+              ${{ github.action_path }}/pkgproxy-cache compare "$ARCHIVE_DIR"/usage.before "$ARCHIVE_DIR"/usage.after
             fi
-            echo "::endgroup::"
+            pkgproxyctl=pkgproxyctl
+            [ "$PKGPROXY_MODE" != snap ] || pkgproxyctl=pkgproxy.pkgproxyctl
+            if [ -f "$ARCHIVE_DIR"/started ]; then
+              info "What pkgproxy served from its cache during this job:"
+              sudo "$pkgproxyctl" stats -r "$(cat "$ARCHIVE_DIR"/started)" || true
+            fi
+            group "pkgproxy statistics, from every job that added to this cache"
+            sudo "$pkgproxyctl" stats || true
+            endgroup
         # Like setup-pkgproxy: only the default branch saves, by default, as
         # its caches are the ones that every other ref can restore. Failed
         # and cancelled jobs save too, as whatever pkgproxy cached is valid.
@@ -498,9 +552,21 @@ runs:
               echo "- Images restored from: \`${IMAGES_RESTORED_KEY:-nothing, cold start}\`"
               echo "- Packages restored from: \`${PACKAGE_RESTORED_KEY:-nothing, cold start}\`"
               echo
+              if [ -f "$ARCHIVE_DIR"/usage.after ]; then
+                ${{ github.action_path }}/pkgproxy-cache compare --markdown "$ARCHIVE_DIR"/usage.before "$ARCHIVE_DIR"/usage.after
+                echo
+              fi
+              echo '<details><summary>What pkgproxy served from its cache during this job</summary>'
+              echo
               echo '```'
-              sudo pkgproxy.pkgproxyctl stats | head -n 40 || true
+              if [ -f "$ARCHIVE_DIR"/started ]; then
+                sudo pkgproxy.pkgproxyctl stats -r "$(cat "$ARCHIVE_DIR"/started)" | head -n 40 || true
+              else
+                sudo pkgproxy.pkgproxyctl stats | head -n 40 || true
+              fi
               echo '```'
+              echo
+              echo '</details>'
             } >>"$GITHUB_STEP_SUMMARY"
             case "$SAVE_CACHE" in
             always) reason="" ;;

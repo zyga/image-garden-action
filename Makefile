@@ -5,7 +5,7 @@
 check: check-shellcheck check-shfmt check-reuse
 fmt: fmt-sh fmt-yaml
 
-SCRIPTS_SH=pkgproxy-cache tests/check-action
+SCRIPTS_SH=pkgproxy-cache spread-output log.sh tests/check-action
 # https://github.com/mvdan/sh
 check-shfmt:
 	shfmt --diff $(SCRIPTS_SH)

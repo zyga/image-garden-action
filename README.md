@@ -126,6 +126,24 @@ restored from. Empty on a cold start and in `external` mode.
 `true` when the action saved the pristine images, or the packages, to the
 GitHub cache, otherwise `false`.
 
+## Reading the job log
+
+The action shapes its output for the GitHub job log:
+
+- Each stage starts with a coloured heading, and its result is marked ✔ or ✘,
+  with how long it took.
+- Making the virtual machine image boots it for the first time, with its whole
+  console in the output. That output is folded, and when making the image fails,
+  its last lines are shown again after the fold.
+- spread's output goes through `spread-output`. Allocating, connecting to and
+  discarding systems are folded. Executing a task stands out, errors and the
+  summary are coloured, and of the output of a failed script only the last 30
+  lines are shown, with the earlier ones folded above them. `spread.log`, uploaded
+  as an artifact, keeps spread's output unchanged.
+- The pkgproxy cache is shown before and after the tests: the files and bytes
+  of each kind of download, what the job added, and what pkgproxy served from
+  its cache during the job. The job summary has the same table.
+
 ## Caching
 
 The action uses [pkgproxy](https://gitlab.com/zygoon/pkgproxy) as its only

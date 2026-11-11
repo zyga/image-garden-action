@@ -1,0 +1,107 @@
+#!/bin/sh
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Canonical Ltd.
+#
+# spread-output - make the output of spread easier to read in a GitHub job log
+#
+# Reads the output of spread on standard input, and writes it out again:
+#
+# - the chatter of allocating, connecting to and discarding systems is
+#   folded into groups, one for each run of such lines;
+# - executing a task stands out, and preparing and restoring are dimmed;
+# - errors, warnings and the summary at the end are coloured as such, with
+#   a line of space around each;
+# - the output that spread shows between lines of -----, of a task that
+#   failed or of a debug script, is set off with a bar, and of a long one
+#   only the last lines are shown, the earlier ones folded above them.
+#
+# Lines of such output are prefixed, so that none can pass for a command of
+# the runner, such as ::error::, ::group:: or ::stop-commands::.
+#
+# Keep the whole output with tee before this, as in
+# spread ... 2>&1 | tee spread.log | spread-output.
+#
+# Environment:
+#   SPREAD_OUTPUT_TAIL  lines of a long block of output shown unfolded (30)
+set -eu
+exec awk -v tail="${SPREAD_OUTPUT_TAIL:-30}" '
+BEGIN {
+	esc = sprintf("%c", 27)
+	reset = esc "[0m"; dim = esc "[2m"; bold = esc "[1m"
+	red = esc "[1;31m"; green = esc "[1;32m"; yellow = esc "[1;33m"; cyan = esc "[1;36m"
+	bar = "  " dim "│" reset " "
+	ingroup = 0; inblock = 0; n = 0; listcolor = ""
+}
+
+function out(s) { print s; fflush() }
+function opengroup(title) { if (!ingroup) { out("::group::" title); ingroup = 1 } }
+function closegroup() { if (ingroup) { out("::endgroup::"); ingroup = 0 } }
+
+# A block of output, between two lines of -----.
+function flush_block(   i, first) {
+	first = 1
+	if (n > tail + 5) {
+		out("::group::" dim "… " (n - tail) " earlier lines of output" reset)
+		for (i = 1; i <= n - tail; i++) out(bar block[i])
+		out("::endgroup::")
+		first = n - tail + 1
+	}
+	for (i = first; i <= n; i++) out(bar block[i])
+	out("")
+	n = 0
+}
+
+inblock {
+	if ($0 == "-----") { inblock = 0; flush_block(); next }
+	block[++n] = $0
+	next
+}
+
+$0 == "-----" { closegroup(); inblock = 1; n = 0; next }
+# spread ends a block with a line of a single full stop.
+$0 == "." { next }
+
+# Lines of spread itself: "2006-01-02 15:04:05 message".
+/^[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9] [0-9][0-9]:[0-9][0-9]:[0-9][0-9] / {
+	ts = substr($0, 1, 19); msg = substr($0, 21)
+	stamp = dim ts reset " "
+	listcolor = ""
+	if (msg ~ /^(Allocating|Allocated|Waiting for|Connecting to|Connected to|Sending project content|Reusing|Discarding|Discarded|Found |Project content is packed|Sequence of jobs|If killed)/) {
+		if (msg ~ /^Discard/) title = "Discarding systems"
+		else title = "Allocating and connecting to systems"
+		opengroup(dim title reset)
+		out(stamp msg)
+		next
+	}
+	closegroup()
+	if (msg ~ /^Executing /) {
+		out(""); out(stamp cyan "▶ " msg reset)
+	} else if (msg ~ /^(Preparing|Restoring) /) {
+		out(stamp dim msg reset)
+	} else if (msg ~ /^(Error|Failed|Aborted|Cannot)/) {
+		out(""); out(stamp red "✘ " msg reset)
+		listcolor = red
+	} else if (msg ~ /^Successful/) {
+		out(""); out(stamp green "✔ " msg reset)
+	} else if (msg ~ /^WARNING/) {
+		out(""); out(stamp yellow "▲ " msg reset)
+	} else if (msg ~ /^Debug output/) {
+		out(""); out(stamp yellow msg reset)
+	} else {
+		out(stamp msg)
+	}
+	next
+}
+
+# The names of the tasks that a summary line lists.
+/^    - / && listcolor != "" { out(listcolor $0 reset); next }
+
+/^error: / { closegroup(); out(""); out(red $0 reset); next }
+
+{ out($0) }
+
+END {
+	if (inblock) flush_block()
+	closegroup()
+}
+'
