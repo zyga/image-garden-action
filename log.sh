@@ -6,7 +6,10 @@
 #
 # GitHub shows ANSI colours in job logs, and folds the lines between
 # ::group:: and ::endgroup:: into one line that opens on a click. Groups do
-# not nest: a group opened inside another closes it.
+# not nest: a group opened inside another closes it. The fold is shown with a
+# triangle, so the marks here are never triangles or arrows, which would look
+# like folds that do not open: ✔ done, ✘ failed, ⚠ warning, • information,
+# and spread-output's ◆ for a task being executed.
 
 c_reset=$'\e[0m'
 c_dim=$'\e[2m'
@@ -29,7 +32,7 @@ ok() {
 	printf '%s✔ %s%s\n' "$c_green" "$*" "$c_reset"
 }
 warn() {
-	printf '%s▲ %s%s\n' "$c_yellow" "$*" "$c_reset"
+	printf '%s⚠ %s%s\n' "$c_yellow" "$*" "$c_reset"
 }
 fail() {
 	printf '%s✘ %s%s\n' "$c_red" "$*" "$c_reset"

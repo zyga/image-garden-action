@@ -75,7 +75,7 @@ $0 == "." { next }
 	}
 	closegroup()
 	if (msg ~ /^Executing /) {
-		out(""); out(stamp cyan "▶ " msg reset)
+		out(""); out(stamp cyan "◆ " msg reset)
 	} else if (msg ~ /^(Preparing|Restoring) /) {
 		out(stamp dim msg reset)
 	} else if (msg ~ /^(Error|Failed|Aborted|Cannot)/) {
@@ -84,7 +84,7 @@ $0 == "." { next }
 	} else if (msg ~ /^Successful/) {
 		out(""); out(stamp green "✔ " msg reset)
 	} else if (msg ~ /^WARNING/) {
-		out(""); out(stamp yellow "▲ " msg reset)
+		out(""); out(stamp yellow "⚠ " msg reset)
 	} else if (msg ~ /^Debug output/) {
 		out(""); out(stamp yellow msg reset)
 	} else {
