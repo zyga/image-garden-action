@@ -1,0 +1,143 @@
+#!/bin/sh
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Canonical Ltd.
+#
+# check-action - check what image-garden-action did, after it ran
+#
+# The action can fail quietly in many ways: image-garden falls back to direct
+# downloads when pkgproxy cannot give an image, and guests that cannot reach
+# pkgproxy download from the internet. This script checks, from the host,
+# that everything went through pkgproxy as intended.
+#
+# Environment:
+#   MODE                  the pkgproxy-mode output of the action
+#   EXPECT_MODE           snap or external
+#   EXPECT_SPREAD_VARIANT spread variant the action was given, if any
+#   EXPECT_CACHE_HITS     "true" when the pkgproxy cache was restored, so that
+#                         image-garden and the image must be cache hits
+
+set -eu
+
+: "${EXPECT_SPREAD_VARIANT:=}"
+: "${EXPECT_CACHE_HITS:=false}"
+
+failures=0
+
+pass() {
+	echo "PASS: $*"
+}
+
+fail() {
+	echo "::error::check-action: $*"
+	failures=$((failures + 1))
+}
+
+if [ "$MODE" = "$EXPECT_MODE" ]; then
+	pass "pkgproxy mode is $MODE"
+else
+	fail "pkgproxy mode is '$MODE', expected '$EXPECT_MODE'"
+fi
+
+setting="$(sudo snap get image-garden pkgproxy 2>/dev/null || true)"
+case "$EXPECT_MODE" in
+snap)
+	unit=snap.pkgproxy.pkgproxy
+	if [ "$setting" = snap ]; then
+		pass "image-garden uses the pkgproxy snap"
+	else
+		fail "image-garden pkgproxy setting is '$setting', expected 'snap'"
+	fi
+	if snap connections image-garden | grep -q '^content\[pkgproxy-sockets\] .*pkgproxy:sockets'; then
+		pass "image-garden:pkgproxy-sockets is connected"
+	else
+		fail "image-garden:pkgproxy-sockets is not connected to pkgproxy:sockets"
+		snap connections image-garden
+	fi
+	;;
+external)
+	unit=pkgproxy.service
+	host_ip="$(hostname -I | awk '{ print $1 }')"
+	if [ "$setting" = "http://$host_ip:3142" ]; then
+		pass "image-garden uses the pkgproxy at $setting"
+	else
+		fail "image-garden pkgproxy setting is '$setting', expected 'http://$host_ip:3142'"
+	fi
+	if snap list pkgproxy >/dev/null 2>&1; then
+		fail "the pkgproxy snap is installed next to an existing pkgproxy"
+	else
+		pass "the pkgproxy snap is not installed"
+	fi
+	;;
+*)
+	fail "EXPECT_MODE must be snap or external, not '$EXPECT_MODE'"
+	exit 1
+	;;
+esac
+
+if [ -n "$EXPECT_SPREAD_VARIANT" ]; then
+	variant="$(sudo snap get image-garden spread-variant 2>/dev/null || true)"
+	revision="$(snap list image-garden | awk 'NR == 2 { print $3 }')"
+	if [ "$variant" = "$EXPECT_SPREAD_VARIANT" ]; then
+		pass "spread variant is $variant"
+	else
+		fail "spread variant is '$variant', expected '$EXPECT_SPREAD_VARIANT'"
+	fi
+	if [ -x /snap/image-garden/components/"$revision"/spread-"$EXPECT_SPREAD_VARIANT"/spread ]; then
+		pass "component spread-$EXPECT_SPREAD_VARIANT is installed"
+	else
+		fail "component spread-$EXPECT_SPREAD_VARIANT is not installed"
+	fi
+fi
+
+# pkgproxy logs every request it serves, with its outcome.
+log="$(mktemp)"
+trap 'rm -f "$log"' EXIT
+# shellcheck disable=SC2024 # only reading the journal needs root.
+sudo journalctl --no-pager --output=cat -u "$unit" >"$log"
+
+# Lines of requests for $1 (a fixed string) that went well.
+served() {
+	grep -F -- "$1" "$log" | grep -E 'status=(200|206)' || true
+}
+
+if [ -n "$(served /v2/download/)" ]; then
+	pass "snaps were downloaded through pkgproxy"
+else
+	fail "no snap was downloaded through pkgproxy"
+fi
+if [ -n "$(served /files/v1/fetch)" ]; then
+	pass "the image was downloaded through pkgproxy"
+else
+	fail "the image was not downloaded through pkgproxy (image-garden fell back to a direct download?)"
+fi
+if grep -q 'handler=apt' "$log"; then
+	pass "guests used pkgproxy for apt"
+else
+	fail "guests did not use pkgproxy for apt"
+fi
+
+if [ "$EXPECT_CACHE_HITS" = true ]; then
+	# A cache hit also shows that the restored files kept the extended
+	# attributes in which pkgproxy keeps what it knows of them.
+	if served /v2/download/ | grep -q 'outcome=hit'; then
+		pass "snaps came from the restored cache"
+	else
+		fail "no snap came from the restored cache"
+	fi
+	if served /v2/download/ | grep -q 'outcome=fetched'; then
+		# Not a failure: snapd may refresh an unrelated snap meanwhile.
+		echo "::warning::check-action: some snaps were downloaded again despite the restored cache"
+		served /v2/download/ | grep 'outcome=fetched'
+	fi
+	if served /files/v1/fetch | grep -q 'outcome=hit'; then
+		pass "the image came from the restored cache"
+	else
+		fail "the image did not come from the restored cache"
+	fi
+fi
+
+if [ "$failures" -ne 0 ]; then
+	echo "Requests served by pkgproxy:"
+	cat "$log"
+	exit 1
+fi

@@ -22,6 +22,10 @@ backends:
             - ubuntu-cloud-24.04:
                 username: root
                 password: root
+            # Used by the cache-round-trip-shared job.
+            - debian-cloud-13:
+                username: root
+                password: root
 suites:
     tests/:
         summary: Toy integration tests

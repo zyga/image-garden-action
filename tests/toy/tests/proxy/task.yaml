@@ -1,0 +1,15 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Canonical Ltd.
+summary: The guest downloads through the pkgproxy of the host
+details: |
+    A guest that cannot reach pkgproxy at first boot boots anyway, uncached,
+    so nothing else fails when it is missing. Check that image-garden set the
+    guest up for pkgproxy and that pkgproxy answers. The apt-get update makes
+    sure the host sees apt traffic, which tests/check-action looks for.
+execute: |
+    grep -E '^[0-9.]+ pkgproxy$' /etc/hosts
+    grep -F 'http://pkgproxy:3142' /etc/apt/apt.conf.d/99pkgproxy
+    grep -F 'SNAPPY_FORCE_API_URL=http://pkgproxy:3142' /etc/systemd/system/snapd.service.d/pkgproxy.conf
+    grep -F 'GOPROXY="http://pkgproxy:3142/go,direct"' /etc/environment
+    curl -fsS -o /dev/null http://pkgproxy:3142/setup/apt
+    apt-get update
