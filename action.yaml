@@ -447,12 +447,13 @@ runs:
             . ${{ github.action_path }}/log.sh
             section "spread on ${{ inputs.garden-system }}"
             # spread.log keeps the output as spread wrote it; the job log
-            # gets it folded and coloured by spread-output.
+            # gets it as plain text (see log.sh), folded and coloured by
+            # spread-output.
             set +e
             spread \
               ${{ inputs.spread-artifacts && format('-artifacts {0}', inputs.spread-artifacts) || '' }} \
               -v ${{ fromJSON(inputs.spread-live) && '-live ' || '' }}${{ inputs.spread-backend }}:${{ inputs.garden-system }}:${{ inputs.spread-tasks }} \
-              2>&1 | tee spread.log | ${{ github.action_path }}/spread-output
+              2>&1 | tee spread.log | plain | ${{ github.action_path }}/spread-output
             SPREAD_EXIT_CODE=${PIPESTATUS[0]}
             set -e
             if [ "$SPREAD_EXIT_CODE" -eq 0 ]; then

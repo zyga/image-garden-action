@@ -55,20 +55,44 @@ elapsed() {
 	fi
 }
 
+# plain: copy standard input to standard output as text the job log shows
+# as it is. Colours stay. Every other terminal control sequence goes, such
+# as the screen clearing and cursor movement of a virtual machine's
+# firmware on its console, which the log does not understand and which
+# breaks its folds, and so do other control characters. A carriage return
+# that does not end a line starts a new one, as it would on a terminal.
+plain() {
+	perl -pe 'BEGIN { $| = 1 }
+		s/\e\[[0-9;:=?<>]*[ -\/]*[\@-ln-~]//g;
+		s/\e\][^\a\e]*(?:\a|\e\\)//g;
+		s/\e[()*+][0-9A-Za-z]//g;
+		s/\e[=>78cDEHMNOZ]//g;
+		s/\r+$//;
+		s/\r/\n/g;
+		s/[\x00-\x08\x0b\x0c\x0e-\x1a\x1c-\x1f\x7f]//g;'
+}
+
 # folded TITLE COMMAND...: run COMMAND with its output folded under TITLE,
 # then say how it went and how long it took. When COMMAND fails, the last
 # lines of its output are shown again, unfolded, after the group, as that is
 # where the reason usually is. Returns the exit status of COMMAND.
+#
+# The output goes through plain, and runner commands are turned off while
+# it is shown (::stop-commands::), so that nothing COMMAND or a virtual
+# machine it boots prints, such as ::endgroup::, acts on the log.
 folded() {
-	local title="$1" out status start
+	local title="$1" out status start token
 	shift
 	out="$(mktemp)"
 	start=$SECONDS
+	token="folded-$RANDOM$RANDOM$RANDOM"
 	group "$title"
+	echo "::stop-commands::$token"
 	set +e
-	"$@" 2>&1 | tee "$out"
+	"$@" 2>&1 | plain | tee "$out"
 	status=${PIPESTATUS[0]}
 	set -e
+	echo "::$token::"
 	endgroup
 	if [ "$status" -eq 0 ]; then
 		ok "$title ($(elapsed $((SECONDS - start))))"
