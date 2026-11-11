@@ -232,12 +232,9 @@ runs:
               sudo snap install --channel="$PKGPROXY_CHANNEL" pkgproxy
               # Show where the time went: these come from the store directly.
               snap tasks --last=install || true
-              # Configure pkgproxy and fill its cache while it is stopped.
-              # Each snap set that changes what the daemon runs with
-              # restarts it, and with the restarts of the install and the
-              # start below, systemd's start limit (5 starts in 10 seconds)
-              # refused to start it again. Stopped, the configure hook
-              # leaves it stopped, and it starts once, with everything.
+              # Configure pkgproxy and fill its cache while it is stopped:
+              # its configure hook leaves a stopped daemon stopped, so it
+              # starts once, with everything (see the snap set below).
               sudo snap stop pkgproxy
               # pkgproxy goes offline by itself, serving only what it has
               # cached, while the host has no default route. Some runners
@@ -246,7 +243,9 @@ runs:
               # fail with HTTP 503. A CI job always wants pkgproxy to fetch,
               # so turn that off. offline-mode=never would not do: it is the
               # mode set by hand, which going offline by itself overrides.
-              sudo snap set pkgproxy auto-offline=off
+              # The settings are gathered here and given in one snap set,
+              # below, which says why.
+              settings=(auto-offline=off)
               # pkgproxy reaches its upstreams through the proxy that snapd
               # has, if any: it gets http_proxy and https_proxy from
               # /etc/environment, which snapd writes from its proxy settings.
@@ -255,12 +254,13 @@ runs:
               # same settings as its own. pkgproxy 0.13 and later use them;
               # earlier versions ignore them, and keep getting the proxy from
               # /etc/environment until then.
+              declare -A proxy=()
               for key in http https no-proxy; do
                 value="$(sudo snap get system proxy."$key" 2>/dev/null || true)"
                 [ -n "$value" ] || continue
                 case "$key:$value" in
                 no-proxy:* | *:http://* | *:https://*)
-                  sudo snap set pkgproxy "${key%-proxy}-proxy=$value"
+                  proxy["${key%-proxy}-proxy"]="$value"
                   ;;
                 *)
                   echo "::warning::Not giving pkgproxy snapd's proxy.$key ($value): pkgproxy wants an http:// or https:// URL"
@@ -269,11 +269,10 @@ runs:
               done
               # Canonical's self-hosted runners reach the internet through an
               # egress proxy, and aproxy sends connections to ports 80 and 443
-              # there transparently. snapd's proxy settings, above, name that
-              # proxy for http:// at most. Give pkgproxy aproxy's egress proxy
-              # for each scheme snapd named none for, so that pkgproxy asks
-              # the proxy itself instead of going through aproxy. aproxy names
-              # it as host:port, without a scheme.
+              # there transparently. Give pkgproxy aproxy's egress proxy for
+              # each scheme snapd's proxy settings named none for, so that
+              # pkgproxy asks the proxy itself instead of going through
+              # aproxy. aproxy names it as host:port, without a scheme.
               egress="$(sudo snap get aproxy proxy 2>/dev/null || true)"
               if [ -n "$egress" ]; then
                 case "$egress" in
@@ -281,16 +280,27 @@ runs:
                 *) egress="http://$egress" ;;
                 esac
                 for key in http-proxy https-proxy; do
-                  if [ -z "$(sudo snap get pkgproxy "$key" 2>/dev/null || true)" ]; then
+                  if [ -z "${proxy[$key]:-}" ]; then
                     echo "::notice::Giving pkgproxy aproxy's egress proxy as its $key ($egress)"
-                    sudo snap set pkgproxy "$key=$egress"
+                    proxy["$key"]="$egress"
                   fi
                 done
               fi
-              echo "pkgproxy's proxy options:"
-              for key in http-proxy https-proxy no-proxy; do
-                echo "  $key=$(sudo snap get pkgproxy "$key" 2>/dev/null || true)"
+              for key in "${!proxy[@]}"; do
+                settings+=("$key=${proxy[$key]}")
               done
+              echo "pkgproxy's settings:"
+              printf '  %s\n' "${settings[@]}"
+              # One snap set for all the settings, not one per setting: each
+              # snap set runs pkgproxy's configure hook, which restarts a
+              # running daemon whenever what it runs with changes, the proxy
+              # options included from pkgproxy 0.13. With one restart per
+              # setting, on top of the install's start and restart, the start
+              # below went over systemd's start limit (5 starts in 10
+              # seconds) and failed with start-limit-hit. pkgproxy is stopped
+              # here too, so the hook only records the settings, and the
+              # daemon starts once, with all of them.
+              sudo snap set pkgproxy "${settings[@]}"
               # Fill the cache before pkgproxy uses it. The archive keeps the
               # extended attributes where pkgproxy keeps what it knows of
               # each file, which the tar of actions/cache would drop.
