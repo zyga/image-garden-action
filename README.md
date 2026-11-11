@@ -143,6 +143,11 @@ The action shapes its output for the GitHub job log:
 - The pkgproxy cache is shown before and after the tests: the files and bytes
   of each kind of download, what the job added, and what pkgproxy served from
   its cache during the job. The job summary has the same table.
+- When the job fails, the pkgproxy log follows: first only what went wrong
+  (warnings and errors, such as who answered when an upstream answered with
+  an error, requests that failed, and the service failing to start), then,
+  folded, the whole log of the job, without the setup guidance pkgproxy
+  prints each time it starts.
 
 ## Caching
 

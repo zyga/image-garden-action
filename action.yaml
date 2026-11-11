@@ -492,15 +492,30 @@ runs:
           env:
             PKGPROXY_MODE: ${{ steps.pkgproxy.outputs.mode }}
           run: |
-            # pkgproxy logs every request it serves, with its outcome: the
+            . ${{ github.action_path }}/log.sh
+            # pkgproxy logs every request it serves, with its outcome, and
+            # who answered when an upstream answered with an error: the
             # first place to look when a download in the job failed.
-            echo "::group::pkgproxy logs"
-            if [ "$PKGPROXY_MODE" = snap ]; then
-              sudo snap logs -n 500 pkgproxy || true
+            section "pkgproxy log"
+            unit=pkgproxy.service
+            [ "$PKGPROXY_MODE" != snap ] || unit=snap.pkgproxy.pkgproxy.service
+            log="$(mktemp)"
+            # Everything since the machine booted, which on a runner made
+            # for one job is the whole job, with a bound for one that is not.
+            # Only reading the journal needs root, not writing our file.
+            # shellcheck disable=SC2024
+            sudo journalctl --no-pager -o short-iso -b -n 20000 -u "$unit" >"$log" || true
+            important="$(${{ github.action_path }}/pkgproxy-log important <"$log")"
+            if [ -n "$important" ]; then
+              warn "What went wrong, as pkgproxy logged it:"
+              printf '%s\n' "$important"
             else
-              sudo journalctl --no-pager -n 500 -u pkgproxy.service || true
+              info "pkgproxy logged no warnings, errors or failed requests"
             fi
-            echo "::endgroup::"
+            group "The whole pkgproxy log of this job, without the setup guidance printed at each start"
+            ${{ github.action_path }}/pkgproxy-log condensed <"$log"
+            endgroup
+            rm -f "$log"
         - name: Show the pkgproxy cache after the tests
           if: ${{ always() && steps.pkgproxy.outputs.mode != '' }}
           shell: bash

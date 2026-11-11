@@ -1,0 +1,64 @@
+#!/bin/sh
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Canonical Ltd.
+#
+# pkgproxy-log - pick out what matters in the log of pkgproxy
+#
+# Reads the log of pkgproxy, as journalctl or snap logs print it, on
+# standard input.
+#
+# Usage:
+#   pkgproxy-log important
+#       Print only the lines that tell what went wrong, coloured: warnings
+#       and errors, such as "upstream answered with an error", which says
+#       who answered; requests answered with an error status other than
+#       404 and 410; the service failing, such as hitting systemd's start
+#       limit; and Go panics. Prints nothing when there is none.
+#   pkgproxy-log condensed
+#       Print the whole log, but for the setup guidance that pkgproxy
+#       prints each time it starts, which is replaced by one line.
+set -eu
+
+usage() {
+	echo "Usage: pkgproxy-log important|condensed" >&2
+	exit 64 # EX_USAGE
+}
+
+[ $# -eq 1 ] || usage
+
+case "$1" in
+important | condensed) ;;
+*) usage ;;
+esac
+
+exec awk -v mode="$1" '
+BEGIN {
+	esc = sprintf("%c", 27)
+	reset = esc "[0m"; red = esc "[1;31m"; yellow = esc "[1;33m"
+	guidance = 0
+}
+
+function out(s) { print s; fflush() }
+
+# The guidance, from "pkgproxy is listening on" to the next line that
+# slog wrote, which has a level.
+mode == "condensed" {
+	if (guidance) {
+		if ($0 !~ / level=/) { skipped++; next }
+		out("  … " skipped " lines of setup guidance left out")
+		guidance = 0
+	}
+	out($0)
+	if ($0 ~ /pkgproxy is listening on /) { guidance = 1; skipped = 0 }
+	next
+}
+
+/ level=ERROR / || /panic: |fatal error: / { out(red $0 reset); next }
+/ level=WARN / { out(yellow $0 reset); next }
+/ msg="handled request" / && / status=(4[0-9][0-9]|5[0-9][0-9]) / && !/ status=(404|410) / { out(yellow $0 reset); next }
+/ systemd\[[0-9]+\]: / && /[Ff]ailed|start-limit|repeated too quickly|code=(exited|killed|dumped)|core-dump/ { out(red $0 reset); next }
+
+END {
+	if (mode == "condensed" && guidance) out("  … " skipped " lines of setup guidance left out")
+}
+'
