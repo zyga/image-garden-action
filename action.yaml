@@ -232,6 +232,13 @@ runs:
               sudo snap install --channel="$PKGPROXY_CHANNEL" pkgproxy
               # Show where the time went: these come from the store directly.
               snap tasks --last=install || true
+              # Configure pkgproxy and fill its cache while it is stopped.
+              # Each snap set that changes what the daemon runs with
+              # restarts it, and with the restarts of the install and the
+              # start below, systemd's start limit (5 starts in 10 seconds)
+              # refused to start it again. Stopped, the configure hook
+              # leaves it stopped, and it starts once, with everything.
+              sudo snap stop pkgproxy
               # pkgproxy goes offline by itself, serving only what it has
               # cached, while the host has no default route. Some runners
               # reach the internet without one, such as self-hosted runners
@@ -287,7 +294,6 @@ runs:
               # Fill the cache before pkgproxy uses it. The archive keeps the
               # extended attributes where pkgproxy keeps what it knows of
               # each file, which the tar of actions/cache would drop.
-              sudo snap stop pkgproxy
               for archive in images packages; do
                 if [ -f "$ARCHIVE_DIR"/"$archive".tar ]; then
                   sudo tar --xattrs --xattrs-include='user.*' -xf "$ARCHIVE_DIR"/"$archive".tar -C /var/snap/pkgproxy/common/cache
@@ -297,6 +303,9 @@ runs:
               mkdir -p "$ARCHIVE_DIR"
               ${{ github.action_path }}/pkgproxy-cache fingerprint images >"$ARCHIVE_DIR"/images.restored
               ${{ github.action_path }}/pkgproxy-cache fingerprint packages >"$ARCHIVE_DIR"/packages.restored
+              # Forget the starts of the install, should they count against
+              # systemd's start limit.
+              sudo systemctl reset-failed snap.pkgproxy.pkgproxy.service || true
               sudo snap start pkgproxy
               for _ in $(seq 60); do
                 if [ -n "$(ss -Hltn 'sport = :3142')" ]; then
