@@ -113,14 +113,39 @@ runs:
               exit 1
               ;;
             esac
+        # pkgproxy caches everything this action downloads: snaps and their
+        # components on the host, pristine images, and apt, snap and go
+        # traffic of the guests. When something, such as the setup-pkgproxy
+        # action, already runs a pkgproxy on port 3142, use it ("external"
+        # mode) and leave its cache alone. Otherwise install the pkgproxy snap
+        # and keep its cache in the GitHub cache ("snap" mode). This comes
+        # first, as prepared images are cached per mode: see below.
+        - name: Detect pkgproxy
+          id: pkgproxy
+          shell: bash
+          run: |
+            if [ -n "$(ss -Hltn 'sport = :3142')" ]; then
+              echo "::notice::Using the pkgproxy that already listens on port 3142, such as one from setup-pkgproxy. Its cache is not saved by this action."
+              echo "mode=external" >>"$GITHUB_OUTPUT"
+              # Guests reach the pkgproxy at the address of the host, as
+              # 127.0.0.1 would be the guest itself.
+              host_ip="$(hostname -I | awk '{ print $1 }')"
+              echo "url=http://$host_ip:3142" >>"$GITHUB_OUTPUT"
+            else
+              echo "mode=snap" >>"$GITHUB_OUTPUT"
+            fi
+        # Prepared images keep the address of pkgproxy that their first boot
+        # set the guest up with: cache them per pkgproxy mode and, for an
+        # external pkgproxy, per its address.
         - name: Cache prepared virtual machine images
+          id: prepared-images
           uses: actions/cache@v5
           if: ${{ fromJSON(inputs.cache-prepared-images) }}
           with:
             path: |
                 ${{ inputs.spread-subdir }}/.image-garden
                 !${{ inputs.spread-subdir }}/.image-garden/*.log
-            key: image-garden-img-${{ inputs.garden-system }}-${{ hashFiles(format('{0}/.image-garden.mk', inputs.spread-subdir)) }}
+            key: image-garden-img-${{ runner.arch }}-${{ inputs.garden-system }}-pkgproxy-${{ steps.pkgproxy.outputs.mode }}${{ steps.pkgproxy.outputs.url && format('-{0}', steps.pkgproxy.outputs.url) || '' }}-${{ hashFiles(format('{0}/.image-garden.mk', inputs.spread-subdir)) }}
         - name: Restore mtime of .image-garden.mk
           if: hashFiles(format('{0}/.image-garden.mk', inputs.spread-subdir)) != ''
           shell: bash
@@ -170,22 +195,6 @@ runs:
             sudo systemctl daemon-reload
             sudo systemctl restart snapd.service
             echo "::endgroup::"
-        # pkgproxy caches everything this action downloads: snaps and their
-        # components on the host, pristine images, and apt, snap and go
-        # traffic of the guests. When something, such as the setup-pkgproxy
-        # action, already runs a pkgproxy on port 3142, use it ("external"
-        # mode) and leave its cache alone. Otherwise install the pkgproxy snap
-        # and keep its cache in the GitHub cache ("snap" mode).
-        - name: Detect pkgproxy
-          id: pkgproxy
-          shell: bash
-          run: |
-            if [ -n "$(ss -Hltn 'sport = :3142')" ]; then
-              echo "::notice::Using the pkgproxy that already listens on port 3142, such as one from setup-pkgproxy. Its cache is not saved by this action."
-              echo "mode=external" >>"$GITHUB_OUTPUT"
-            else
-              echo "mode=snap" >>"$GITHUB_OUTPUT"
-            fi
         # The pkgproxy cache is kept as two GitHub caches: the pristine
         # images, which pkgproxy keeps under files/, always per garden
         # system, and everything else (snaps, apt, docker, lxd, go), per
@@ -377,16 +386,14 @@ runs:
           shell: bash
           env:
             PKGPROXY_MODE: ${{ steps.pkgproxy.outputs.mode }}
+            PKGPROXY_GUEST_URL: ${{ steps.pkgproxy.outputs.url }}
           run: |
             echo "::group::Point image-garden at pkgproxy"
             if [ "$PKGPROXY_MODE" = snap ]; then
               sudo snap connect image-garden:pkgproxy-sockets pkgproxy:sockets
               sudo snap set image-garden pkgproxy=snap
             else
-              # Guests reach the pkgproxy at the address of the host, as
-              # 127.0.0.1 would be the guest itself.
-              host_ip="$(hostname -I | awk '{ print $1 }')"
-              sudo snap set image-garden pkgproxy=http://"$host_ip":3142
+              sudo snap set image-garden pkgproxy="$PKGPROXY_GUEST_URL"
             fi
             # image-garden downloads pristine images through pkgproxy, by
             # their checksum, when told where it is.
@@ -435,8 +442,9 @@ runs:
               ${{ inputs.garden-system }}."$(uname -m)".seed.iso
         - name: Rebase the virtual machine image
           shell: bash
-          # TODO: only run this if there was a cache hit.
-          if: ${{ fromJSON(inputs.cache-prepared-images) }}
+          # Only an image restored from the cache can point at a backing
+          # file under another path; one made in this job is already right.
+          if: ${{ steps.prepared-images.outputs.cache-hit == 'true' }}
           working-directory: ${{ inputs.spread-subdir }}
           run: |
             image-garden rebase ${{ inputs.garden-system }}."$(uname -m)".qcow2

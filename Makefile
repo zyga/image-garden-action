@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: Canonical Ltd.
-.PHONY: check fmt fmt-sh fmt-yaml check-shfmt check-shellcheck check-yaml check-reuse
+.PHONY: check fmt fmt-sh fmt-yaml check-shfmt check-shellcheck check-yamlfmt check-reuse
 
 check: check-shellcheck check-shfmt check-reuse
 fmt: fmt-sh fmt-yaml

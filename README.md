@@ -72,7 +72,9 @@ Default: `"latest/stable"`
 
 Optional boolean flag to keep the project-specific virtual machine images,
 prepared from `.image-garden.mk`, in the GitHub cache. This uses a lot of cache
-storage and scales poorly with the number of systems.
+storage and scales poorly with the number of systems. The images are cached
+per runner architecture and per pkgproxy: the action's own, or the address of
+one that already listens on port 3142.
 
 Default: `"false"`
 
